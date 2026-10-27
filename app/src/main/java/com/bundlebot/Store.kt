@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.*
+import kotlin.math.abs
 
 data class Package(val name:String,val network:String,val section:String,val gb:Int,val days:Int,val price:Int)
 data class Bank(val name:String,val account:String,val balance:Int,val lowAt:Int)
@@ -57,26 +58,32 @@ object Store {
 
     fun matchPackage(network: String, gb: Int, days: Int, name: String, price: Int): MatchResult {
         val list = packages().filter { it.network.equals(network, true) || network.isEmpty() }
-        
-        // 1. Exact GB and Price match
-        if (gb > 0 && price > 0) {
-            val exact = list.firstOrNull { it.gb == gb && it.price == price }
-            if (exact != null) return MatchResult(exact, false, "")
-        }
 
-        // 2. Exact GB match
+        // 1. PRIORITY: Match by GB
         if (gb > 0) {
-            val exactGb = list.firstOrNull { it.gb == gb && (days == 0 || it.days == days) }
-            if (exactGb != null) return MatchResult(exactGb, false, "")
+            val gbMatches = list.filter { it.gb == gb && (days == 0 || it.days == days) }
+            if (gbMatches.isNotEmpty()) {
+                // If the client mentioned a price, check if it's close to our list price (within 150 Rs margin)
+                if (price > 0) {
+                    val closest = gbMatches.minByOrNull { abs(it.price - price) }
+                    if (closest != null && abs(closest.price - price) <= 150) {
+                        return MatchResult(closest, false, "")
+                    }
+                }
+                // If no price mentioned, or price is completely off but GB matches, just give the GB match
+                return MatchResult(gbMatches.first(), false, "")
+            }
         }
 
-        // 3. Exact Price match
+        // 2. Match by Price (if client didn't specify GB)
         if (price > 0) {
-            val exactPrice = list.firstOrNull { it.price == price }
-            if (exactPrice != null) return MatchResult(exactPrice, false, "")
+            val priceMatches = list.filter { abs(it.price - price) <= 150 }
+            if (priceMatches.isNotEmpty()) {
+                return MatchResult(priceMatches.first(), false, "")
+            }
         }
 
-        // 4. Keyword match (like "imo" or "social") if user didn't specify GB/Price perfectly
+        // 3. Keyword match (like "imo" or "social") - Needs Confirmation
         if (name.isNotBlank()) {
             val keywordMatch = list.firstOrNull { 
                 it.name.contains(name, true) || it.section.contains(name, true) 
