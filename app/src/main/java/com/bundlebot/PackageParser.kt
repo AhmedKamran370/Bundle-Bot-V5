@@ -21,7 +21,7 @@ object PackageParser {
             if (l.isEmpty()) continue
 
             // 2. Detect Section Headers (e.g., "Monthly All Data Packages")
-            if (l.contains("Package", true) && !l.any { it.isDigit() }) {
+            if (l.contains("Package", true) && !l.any { it.isDigit() } && !l.contains("SR.NO", true)) {
                 currentSec = l
                 continue
             }
@@ -30,34 +30,34 @@ object PackageParser {
             val gbMatch = Regex("""(\d+)\s*(?:GB|gb)""").find(l)
             val gb = gbMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
 
-            // 4. Extract Price (look for SAR, Rs, or numbers at the end)
-            val textWithoutGb = if (gbMatch != null) l.replace(gbMatch.value, "") else l
+            // 4. Extract Price
+            // Look for SAR 46, Rs. 500, PKR 200
+            val priceMatch = Regex("""(?:SAR|Rs\.?|PKR)\s*(\d+)""", RegexOption.IGNORE_CASE).find(l)
+            var price = priceMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
             
-            // Find all numbers, the last one is usually the price
-            val priceMatch = Regex("""(?:SAR|Rs\.?|PKR)?\s*(\d+)""", RegexOption.IGNORE_CASE).findAll(textWithoutGb).lastOrNull()
-            val price = priceMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            // If no currency found, try finding the last number in the string
+            if (price == 0) {
+                val lastNum = Regex("""(\d+)""").findAll(l).lastOrNull()
+                if (lastNum != null) price = lastNum.groupValues[1].toIntOrNull() ?: 0
+            }
 
-            // If no GB and no price, it's just text or voice minutes. Skip.
-            if (gb == 0 && price == 0) continue
+            // Skip lines that don't have a GB or a Price (like voice-only packages)
+            if (gb == 0 || price == 0) continue
 
             // 5. Extract Name
-            var namePart = textWithoutGb
-            // Remove leading serial numbers like "1." or "1 "
-            namePart = namePart.replace(Regex("^\\d+\\.?\\s*"), "")
-            
-            // Take everything before the price numbers
-            if (priceMatch != null) {
-                namePart = namePart.substringBefore(priceMatch.value)
-            }
-            
-            namePart = namePart.trim()
-            if (namePart.isEmpty()) namePart = if (gb > 0) "$gb GB" else "Unknown Package"
+            var name = l
+            if (gbMatch != null) name = name.substringBefore(gbMatch.value)
+            if (priceMatch != null) name = name.substringBefore(priceMatch.value)
+            else if (l.endsWith(price.toString())) name = name.substringBefore(price.toString())
 
-            // 6. Determine Network (Defaults to Jazz based on your file)
+            // Remove leading serial numbers like "1. " or "10 "
+            name = name.replace(Regex("^\\d+\\.?\\s*"), "").trim()
+            if (name.isEmpty()) name = "$gb GB"
+
+            // 6. Determine Network
             val net = guessNetwork(line).ifBlank { "Jazz" } 
 
-            // Default days to 30 if not specified, you can edit this later
-            out.add(Package(namePart, net, currentSec, gb, 30, price))
+            out.add(Package(name, net, currentSec, gb, 30, price))
         }
         return out
     }
@@ -78,15 +78,14 @@ object PackageParser {
                     if (entry.name == "word/document.xml") {
                         val xmlText = zip.bufferedReader().readText()
                         
-                        // Convert Word XML tables into readable text lines
+                        // Convert Word XML to text
                         val cleanText = xmlText
                             .replace("</w:p>", "\n")
-                            .replace("</w:tr>", "\n") // End of table row = newline
+                            .replace("</w:tr>", "\n") // End of table row becomes newline
                             .replace(Regex("<[^>]*>"), " ") // Remove XML tags
                             .replace("&amp;", "&")
-                            .replace("&lt;", "<")
-                            .replace("&gt;", ">")
-                            .replace(Regex("\\s+"), " ")
+                            .replace(Regex("[ \t]+"), " ") // Collapse spaces but NOT newlines
+                            .replace(Regex("\n+"), "\n") // Collapse multiple newlines
 
                         return fromText(cleanText)
                     }
@@ -94,7 +93,7 @@ object PackageParser {
                 }
             }
         } catch (e: Exception) {
-            // Ignore corrupted docx
+            // Ignore
         }
         return emptyList()
     }
