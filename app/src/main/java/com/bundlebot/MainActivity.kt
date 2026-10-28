@@ -3,7 +3,10 @@ package com.bundlebot
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import android.view.View
 import android.widget.*
@@ -17,7 +20,29 @@ class MainActivity : Activity() {
         super.onCreate(b)
         Store.init(this)
         Alarm.init(this)
+        
+        // START THE FOREGROUND SERVICE & ASK FOR BATTERY EXEMPTION
+        startService(Intent(this, BgService::class.java))
+        askForBatteryPermission()
+
         showSplash()
+    }
+
+    private fun askForBatteryPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(POWER_SERVICE) as PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                try {
+                    val intent = Intent()
+                    intent.action = Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                    intent.data = Uri.parse("package:$packageName")
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    // Fallback if the direct intent fails
+                    startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                }
+            }
+        }
     }
 
     private fun showSplash() {
@@ -125,8 +150,8 @@ class MainActivity : Activity() {
             bufferedStream.read(header)
             bufferedStream.reset()
 
-            val isDocx = header[0] == 0x50.toByte() && header[1] == 0x4B.toByte()
-            val isPdf = header[0] == 0x25.toByte() && header[1] == 0x50.toByte()
+            val isDocx = header[0] == 0x50.toByte() && header[1] == 0x4B.toByte() 
+            val isPdf = header[0] == 0x25.toByte() && header[1] == 0x50.toByte()  
 
             if (isPdf) {
                 Toast.makeText(this, "PDFs are not supported. Please upload DOCX or TXT.", Toast.LENGTH_LONG).show()
