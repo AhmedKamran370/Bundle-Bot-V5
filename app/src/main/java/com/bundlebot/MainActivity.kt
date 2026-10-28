@@ -107,24 +107,38 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != 42 || resultCode != RESULT_OK || data?.data == null) return
         val uri = data.data!!
+        
         if (Store.pickRecording) {
             Store.setScreenRecordingDone()
             Toast.makeText(this, "Recording saved", Toast.LENGTH_SHORT).show()
             Store.pickRecording = false
             return
         }
+
+        val name = uri.lastPathSegment?.lowercase() ?: ""
+        
+        // Reject PDFs and Images so they don't become garbage text
+        if (name.endsWith(".pdf") || name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg")) {
+            Toast.makeText(this, "Please upload a TXT, CSV, or DOCX file. The app cannot read PDFs/Images directly.", Toast.LENGTH_LONG).show()
+            return
+        }
+
         try {
             val input = contentResolver.openInputStream(uri) ?: return
-            val name = uri.lastPathSegment ?: ""
             val pkgs: List<Package> = when {
-                name.endsWith(".docx", true) -> PackageParser.fromDocx(input)
+                name.endsWith(".docx") -> PackageParser.fromDocx(input)
                 else -> PackageParser.fromText(input.bufferedReader().readText())
             }
-            for (p in pkgs) Store.upsertPackage(p, null)
-            Toast.makeText(this, "Imported ${pkgs.size} packages", Toast.LENGTH_LONG).show()
-            rebuild()
+            
+            if (pkgs.isEmpty()) {
+                Toast.makeText(this, "Could not read any packages from this file.", Toast.LENGTH_LONG).show()
+            } else {
+                for (p in pkgs) Store.upsertPackage(p, null)
+                Toast.makeText(this, "Imported ${pkgs.size} packages", Toast.LENGTH_LONG).show()
+                rebuild()
+            }
         } catch (e: Exception) {
-            Toast.makeText(this, "Failed: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Failed to read file: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 }
