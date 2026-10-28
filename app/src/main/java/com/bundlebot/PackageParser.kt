@@ -2,10 +2,15 @@ package com.bundlebot
 
 import java.io.InputStream
 import java.util.zip.ZipInputStream
-import javax.xml.parsers.DocumentBuilderFactory
 
 object PackageParser {
     fun fromText(text: String): List<Package> {
+        // Detect if the file is binary (like a PDF or Image read as text)
+        val printableChars = text.count { it.isLetterOrDigit() || it.isWhitespace() || it in ".,:-/()" }
+        if (text.isNotEmpty() && printableChars < text.length * 0.8) {
+            return emptyList() // Reject binary garbage
+        }
+
         val out = mutableListOf<Package>()
         var currentNet = ""
         var currentSec = ""
@@ -13,7 +18,6 @@ object PackageParser {
             val l = line.trim()
             if (l.isEmpty()) continue
             
-            // If it's a header like "Weekly:" or "Jazz:"
             if (l.endsWith(":") && !l.any { it.isDigit() }) {
                 val word = l.dropLast(1).trim()
                 if (word.equals("Weekly", true) || word.equals("Daily", true) ||
@@ -23,10 +27,7 @@ object PackageParser {
             }
             
             val gbMatch = Regex("""(\d+)\s*(gb|GB)""", RegexOption.IGNORE_CASE).find(l)
-            
-            // FIXED: Added the second empty string argument ", """
             val priceMatch = Regex("""(?:Rs\.?|PKR)?\s*(\d{2,5})""", RegexOption.IGNORE_CASE).find(l.replace(gbMatch?.value ?: "", ""))
-            
             val dayMatch = Regex("""(\d+)\s*days?""", RegexOption.IGNORE_CASE).find(l)
             
             if (gbMatch == null && priceMatch == null) continue
@@ -53,31 +54,29 @@ object PackageParser {
     }
 
     fun fromDocx(input: InputStream): List<Package> {
-        val out = mutableListOf<Package>()
-        ZipInputStream(input).use { zip ->
-            var entry = zip.nextEntry
-            while (entry != null) {
-                if (entry.name == "word/document.xml") {
-                    val doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(zip)
-                    val rows = doc.getElementsByTagName("w:tr")
-                    for (i in 0 until rows.length) {
-                        val tr = rows.item(i)
-                        val cells = tr.childNodes
-                        val rowText = StringBuilder()
-                        for (j in 0 until cells.length) {
-                            val cn = cells.item(j)
-                            if (cn.nodeName == "w:tc") {
-                                val t = cn.textContent.trim()
-                                if (t.isNotEmpty()) { rowText.append(t).append(" ") }
-                            }
-                        }
-                        out.addAll(fromText(rowText.toString()))
+        try {
+            ZipInputStream(input).use { zip ->
+                var entry = zip.nextEntry
+                while (entry != null) {
+                    if (entry.name == "word/document.xml") {
+                        val xmlText = zip.bufferedReader().readText()
+                        
+                        // Convert Word XML tables into readable text lines
+                        val cleanText = xmlText
+                            .replace("</w:p>", "\n")
+                            .replace("</w:tr>", "\n")
+                            .replace(Regex("<[^>]*>"), " ")
+                            .replace("&amp;", "&")
+                            .replace(Regex("\\s+"), " ")
+
+                        return fromText(cleanText)
                     }
-                    return out
+                    entry = zip.nextEntry
                 }
-                entry = zip.nextEntry
             }
+        } catch (e: Exception) {
+            // Ignore corrupted docx
         }
-        return out
+        return emptyList()
     }
 }
