@@ -5,42 +5,59 @@ import java.util.zip.ZipInputStream
 
 object PackageParser {
     fun fromText(text: String): List<Package> {
-        // Detect if the file is binary (like a PDF or Image read as text)
-        val printableChars = text.count { it.isLetterOrDigit() || it.isWhitespace() || it in ".,:-/()" }
-        if (text.isNotEmpty() && printableChars < text.length * 0.8) {
-            return emptyList() // Reject binary garbage
-        }
-
         val out = mutableListOf<Package>()
-        var currentNet = ""
-        var currentSec = ""
+        var currentSec = "Other"
+
         for (line in text.lines()) {
-            val l = line.trim()
+            // 1. Clean the line of table borders, asterisks, backslashes
+            var l = line.replace("|", " ")
+                .replace("+", " ")
+                .replace("-", " ")
+                .replace("*", "")
+                .replace("\\", "")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+
             if (l.isEmpty()) continue
-            
-            if (l.endsWith(":") && !l.any { it.isDigit() }) {
-                val word = l.dropLast(1).trim()
-                if (word.equals("Weekly", true) || word.equals("Daily", true) ||
-                    word.contains("Monthly", true) || word.contains("Call", true)) currentSec = word
-                else currentNet = word
+
+            // 2. Detect Section Headers (e.g., "Monthly All Data Packages")
+            if (l.contains("Package", true) && !l.any { it.isDigit() }) {
+                currentSec = l
                 continue
             }
-            
-            val gbMatch = Regex("""(\d+)\s*(gb|GB)""", RegexOption.IGNORE_CASE).find(l)
-            val priceMatch = Regex("""(?:Rs\.?|PKR)?\s*(\d{2,5})""", RegexOption.IGNORE_CASE).find(l.replace(gbMatch?.value ?: "", ""))
-            val dayMatch = Regex("""(\d+)\s*days?""", RegexOption.IGNORE_CASE).find(l)
-            
-            if (gbMatch == null && priceMatch == null) continue
-            
+
+            // 3. Extract GB
+            val gbMatch = Regex("""(\d+)\s*(?:GB|gb)""").find(l)
             val gb = gbMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
-            val days = dayMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
+
+            // 4. Extract Price (look for SAR, Rs, or numbers at the end)
+            val textWithoutGb = if (gbMatch != null) l.replace(gbMatch.value, "") else l
+            
+            // Find all numbers, the last one is usually the price
+            val priceMatch = Regex("""(?:SAR|Rs\.?|PKR)?\s*(\d+)""", RegexOption.IGNORE_CASE).findAll(textWithoutGb).lastOrNull()
             val price = priceMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
+
+            // If no GB and no price, it's just text or voice minutes. Skip.
+            if (gb == 0 && price == 0) continue
+
+            // 5. Extract Name
+            var namePart = textWithoutGb
+            // Remove leading serial numbers like "1." or "1 "
+            namePart = namePart.replace(Regex("^\\d+\\.?\\s*"), "")
             
-            val nameRaw = l.split(Regex("""\d+\s*(gb|GB)""", RegexOption.IGNORE_CASE)).firstOrNull()?.trim() ?: ""
-            val name = nameRaw.ifEmpty { "$gb GB" }
+            // Take everything before the price numbers
+            if (priceMatch != null) {
+                namePart = namePart.substringBefore(priceMatch.value)
+            }
             
-            val net = guessNetwork(l).ifBlank { currentNet }
-            out.add(Package(name, net, currentSec.ifBlank { "Other" }, gb, days, price))
+            namePart = namePart.trim()
+            if (namePart.isEmpty()) namePart = if (gb > 0) "$gb GB" else "Unknown Package"
+
+            // 6. Determine Network (Defaults to Jazz based on your file)
+            val net = guessNetwork(line).ifBlank { "Jazz" } 
+
+            // Default days to 30 if not specified, you can edit this later
+            out.add(Package(namePart, net, currentSec, gb, 30, price))
         }
         return out
     }
@@ -64,9 +81,11 @@ object PackageParser {
                         // Convert Word XML tables into readable text lines
                         val cleanText = xmlText
                             .replace("</w:p>", "\n")
-                            .replace("</w:tr>", "\n")
-                            .replace(Regex("<[^>]*>"), " ")
+                            .replace("</w:tr>", "\n") // End of table row = newline
+                            .replace(Regex("<[^>]*>"), " ") // Remove XML tags
                             .replace("&amp;", "&")
+                            .replace("&lt;", "<")
+                            .replace("&gt;", ">")
                             .replace(Regex("\\s+"), " ")
 
                         return fromText(cleanText)
