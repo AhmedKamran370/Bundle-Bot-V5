@@ -94,7 +94,6 @@ object Pages {
         val c = col(a)
         c.addView(tv(a, "Packages", TEXT, 24f))
         
-        // DELETE ALL BUTTON
         c.addView(btn(a, "Delete All Packages", WARN) {
             Store.clearPackages()
             (a as MainActivity).rebuild()
@@ -105,12 +104,10 @@ object Pages {
         val colors = mapOf("Jazz" to "#EF4444", "Zong" to "#22C55E", "Telenor" to "#3B82F6", "Ufone" to "#F59E0B", "Other" to "#94A3B8")
 
         for (net in networks) {
-            // Get packages only for this specific SIM
             val netPkgs = allPkgs.filter { it.network.equals(net, true) }
             
             val netContent = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
             
-            // 1. Show existing packages
             for (p in netPkgs) {
                 val row = LinearLayout(a).apply {
                     orientation = LinearLayout.HORIZONTAL; setPadding(10, 10, 10, 10)
@@ -128,7 +125,6 @@ object Pages {
                 netContent.addView(row)
             }
 
-            // 2. Add the "Add Packages" button INSIDE the SIM card
             netContent.addView(btn(a, "➕ Add $net Packages", BLUE) {
                 Store.pendingUploadNetwork = net
                 Store.pickRecording = false
@@ -271,7 +267,7 @@ object Pages {
 
         c.addView(tv(a, "Easypaisa MPIN (Required for Automation)", TEXT, 16f))
         val pin = EditText(a).apply { 
-            setText(Store.easypaisaPin); hint = "Enter 4-digit PIN"
+            setText(Store.easypaisaPin); hint = "Enter 5-digit PIN" // FIXED: 5 digits
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
         }
         c.addView(pin)
