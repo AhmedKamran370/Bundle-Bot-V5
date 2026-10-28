@@ -7,6 +7,7 @@ import android.os.Bundle
 
 class A11y : AccessibilityService() {
     private var currentTask: String = ""
+    private var hasTypedPin = false
     
     override fun onServiceConnected() { super.onServiceConnected(); isRunning = true }
     override fun onDestroy() { super.onDestroy(); isRunning = false }
@@ -34,16 +35,32 @@ class A11y : AccessibilityService() {
 
         val root = rootInActiveWindow ?: return
         
-        // Check for Loan Warning or Insufficient Balance
-        if (containsText(root, "Loan") || containsText(root, "Advance") || containsText(root, "Insufficient")) {
-            triggerError("Loan or Insufficient Balance detected!")
+        // 1. Handle MPIN Login Screen
+        if (containsText(root, "Enter MPIN") || containsText(root, "Login") || containsText(root, "Password")) {
+            val pinField = findEditText(root, "")
+            if (pinField != null && !hasTypedPin) {
+                val args = Bundle()
+                args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, Store.easypaisaPin)
+                pinField.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+                hasTypedPin = true
+                clickText(root, "Login") 
+                clickText(root, "Confirm")
+                return
+            }
+        } else {
+            hasTypedPin = false // Reset once logged in
+        }
+
+        // 2. Check for Loan Warning
+        if (containsText(root, "Loan") || containsText(root, "Advance")) {
+            triggerError("Loan detected!")
             return
         }
 
-        // 1. Home Screen: Click "Loads & Packages"
+        // 3. Click "Loads & Packages"
         if (clickText(root, "Loads & Packages") || clickText(root, "Load & Packages")) return
 
-        // 2. Enter Number
+        // 4. Enter Number
         val numberField = findEditText(root, "Enter Number")
         if (numberField != null) {
             val args = Bundle()
@@ -52,10 +69,10 @@ class A11y : AccessibilityService() {
             return
         }
 
-        // 3. Click Next
+        // 5. Click Next
         if (clickText(root, "Next")) return
 
-        // 4. Filter by Duration
+        // 6. Filter by Duration
         if (clickText(root, "Duration")) {
             val durText = when(days) {
                 "1" -> "Daily"
@@ -67,16 +84,15 @@ class A11y : AccessibilityService() {
             return
         }
 
-        // 5. Click Buy Now / Package
+        // 7. Buy Now
         if (clickText(root, pkgName)) return 
         if (clickText(root, "Buy Now")) return
 
-        // 6. Success Screen
+        // 8. Success
         if (containsText(root, "Transaction Successful") || containsText(root, "successful")) {
             Store.addMessage("A11y: Transaction Successful!")
             Store.pendingTask = ""
             currentTask = ""
-            // In production, take screenshot here. For now, record it.
             val p = Package(pkgName, network, "", gb.toIntOrNull() ?: 0, days.toIntOrNull() ?: 0, 0)
             Records.add(number, p, "Easypaisa", 0)
             return
