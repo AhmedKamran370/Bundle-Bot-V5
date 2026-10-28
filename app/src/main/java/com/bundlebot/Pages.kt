@@ -34,7 +34,6 @@ object Pages {
         setBackgroundColor(Color.parseColor(ACCENT))
     }
     
-    // SIM Card UI helper
     private fun simCard(a: Activity, title: String, color: String, content: View) = LinearLayout(a).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(20, 20, 20, 20)
@@ -96,6 +95,17 @@ object Pages {
         c.addView(btn(a, "Upload list (TXT, CSV, DOCX)") { Store.pickRecording = false; pickFile(a) })
         c.addView(btn(a, "Add package manually") { editPackage(a, null) })
         
+        // DELETE ALL BUTTON
+        val delBtn = Button(a).apply {
+            text = "Delete All Packages"; setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor(WARN))
+            setOnClickListener {
+                Store.clearPackages()
+                (a as MainActivity).rebuild()
+            }
+        }
+        c.addView(delBtn)
+
         val allPkgs = Store.packages()
         val networks = listOf("Zong", "Jazz", "Telenor", "Ufone", "Other")
         val colors = mapOf("Zong" to "#22C55E", "Jazz" to "#EF4444", "Telenor" to "#3B82F6", "Ufone" to "#F59E0B", "Other" to "#94A3B8")
@@ -255,7 +265,6 @@ object Pages {
         }
         c.addView(rg)
 
-        // Easypaisa MPIN setup
         c.addView(tv(a, "Easypaisa MPIN (Required for Automation)", TEXT, 16f))
         val pin = EditText(a).apply { 
             setText(Store.easypaisaPin); hint = "Enter 4-digit PIN"
