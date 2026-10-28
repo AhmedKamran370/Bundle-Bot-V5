@@ -12,6 +12,8 @@ object PackageParser {
         for (line in text.lines()) {
             val l = line.trim()
             if (l.isEmpty()) continue
+            
+            // If it's a header like "Weekly:" or "Jazz:"
             if (l.endsWith(":") && !l.any { it.isDigit() }) {
                 val word = l.dropLast(1).trim()
                 if (word.equals("Weekly", true) || word.equals("Daily", true) ||
@@ -19,14 +21,21 @@ object PackageParser {
                 else currentNet = word
                 continue
             }
-            val gbMatch = Regex("""(\d+)\s*(gb|GB)""").find(l)
-            val priceMatch = Regex("""(?:Rs\.?|PKR)?\s*(\d{2,5})""").find(l.replace(gbMatch?.value ?: ""))
+            
+            val gbMatch = Regex("""(\d+)\s*(gb|GB)""", RegexOption.IGNORE_CASE).find(l)
+            val priceMatch = Regex("""(?:Rs\.?|PKR)?\s*(\d{2,5})""", RegexOption.IGNORE_CASE).find(l.replace(gbMatch?.value ?: ""))
             val dayMatch = Regex("""(\d+)\s*days?""", RegexOption.IGNORE_CASE).find(l)
+            
             if (gbMatch == null && priceMatch == null) continue
+            
             val gb = gbMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
             val days = dayMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
             val price = priceMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
-            val name = l.substringBefore(Regex("""\d+\s*(gb|GB)""")).trim().ifEmpty { "$gb GB" }
+            
+            // FIXED: Split by Regex instead of substringBefore
+            val nameRaw = l.split(Regex("""\d+\s*(gb|GB)""", RegexOption.IGNORE_CASE)).firstOrNull()?.trim() ?: ""
+            val name = nameRaw.ifEmpty { "$gb GB" }
+            
             val net = guessNetwork(l).ifBlank { currentNet }
             out.add(Package(name, net, currentSec.ifBlank { "Other" }, gb, days, price))
         }
