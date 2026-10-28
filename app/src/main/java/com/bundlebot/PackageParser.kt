@@ -26,30 +26,30 @@ object PackageParser {
                 // TABLE FORMAT
                 val cells = l.split("|").map { it.trim() }
                 
+                // In your Word doc, the columns are: SR.NO | Name | Data | Price
+                // We can find the Name and GB by looking at the cells
                 for (i in cells.indices) {
                     val cell = cells[i]
                     
-                    // Extract GB
+                    // Extract GB (usually in column 2 or 3)
                     val gbMatch = Regex("""(\d+)\s*(?:GB|gb)""").find(cell)
                     if (gbMatch != null && gb == 0) {
                         gb = gbMatch.groupValues[1].toIntOrNull() ?: 0
-                        if (cell.replace(gbMatch.value, "").trim().isEmpty() && i > 0) {
+                        // If the cell is JUST "15GB", the name is in the previous cell
+                        if (cell.replace(gbMatch.value, "").replace(Regex("[^a-zA-Z]"), "").trim().isEmpty() && i > 0) {
                             name = cells[i-1]
                         } else {
                             name = cell.substringBefore(gbMatch.value).trim()
                         }
                     }
                     
-                    // Extract Price & Convert to PKR Base
-                    if (price == 0 && (cell.contains("SAR", true) || cell.contains("Rs", true) || cell.contains("PKR", true) || cell.contains("USD", true) || cell.contains("AED", true))) {
+                    // Extract Price (look for SAR, Rs, PKR)
+                    if (price == 0 && (cell.contains("SAR", true) || cell.contains("Rs", true) || cell.contains("PKR", true))) {
                         val numOnly = cell.replace(Regex("[^0-9]"), "") 
                         if (numOnly.isNotEmpty()) {
                             var rawPrice = numOnly.toIntOrNull() ?: 0
-                            // Convert to PKR base
+                            // Convert to PKR base (assuming 1 SAR = 74 PKR)
                             if (cell.contains("SAR", true)) rawPrice = (rawPrice * 74.0).toInt()
-                            else if (cell.contains("USD", true)) rawPrice = (rawPrice * 280.0).toInt()
-                            else if (cell.contains("AED", true)) rawPrice = (rawPrice * 76.0).toInt()
-                            
                             price = rawPrice
                         }
                     }
@@ -63,27 +63,25 @@ object PackageParser {
                     name = l.substringBefore(gbMatch.value)
                 }
                 
-                val priceMatch = Regex("""(?:SAR|Rs\.?|PKR|USD|AED)\s*(\d+)""", RegexOption.IGNORE_CASE).find(l)
+                val priceMatch = Regex("""(?:SAR|Rs\.?|PKR)\s*(\d+)""", RegexOption.IGNORE_CASE).find(l)
                 if (priceMatch != null) {
                     var rawPrice = priceMatch.groupValues[1].toIntOrNull() ?: 0
                     if (priceMatch.value.contains("SAR", true)) rawPrice = (rawPrice * 74.0).toInt()
-                    else if (priceMatch.value.contains("USD", true)) rawPrice = (rawPrice * 280.0).toInt()
-                    else if (priceMatch.value.contains("AED", true)) rawPrice = (rawPrice * 76.0).toInt()
                     price = rawPrice
-                } else {
-                    val allNums = Regex("""\d+""").findAll(l).map { it.value.toInt() }.toList()
-                    if (allNums.isNotEmpty()) {
-                        val possible = allNums.filter { it != gb && it > 5 }
-                        if (possible.isNotEmpty()) price = possible.last()
-                    }
                 }
             }
 
-            name = name.replace(Regex("^\\d+\\.?\\s*"), "") 
+            // CLEAN UP THE NAME
+            // Remove serial numbers like "1. " or "19. - "
+            name = name.replace(Regex("^\\d+\\.?\\s*-?\\s*"), "")
                 .replace("*", "")
                 .trim()
             
-            if (name.isEmpty() && gb > 0) name = "$gb GB"
+            // If the name has weird symbols or is too long, fallback to GB
+            if (name.length > 40 || name.contains("On-mint") || name.contains("Off-mint")) {
+                name = if (gb > 0) "$gb GB Package" else "Data Package"
+            }
+            if (name.isEmpty() && gb > 0) name = "$gb GB Package"
 
             if (gb > 0 && price > 0) {
                 out.add(Package(name, forcedNet, currentSec, gb, 30, price))
