@@ -8,6 +8,9 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 
 class WaListener : NotificationListenerService() {
+    private var lastMessageHash = 0
+    private var lastMessageTime = 0L
+
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         Store.init(this)
         val p = sbn.packageName
@@ -17,8 +20,10 @@ class WaListener : NotificationListenerService() {
             else -> p == "com.whatsapp" || p == "com.whatsapp.w4b"
         }
         if (!allowed) return
+        
         val n = sbn.notification ?: return
         if ((n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
+        
         val e = n.extras ?: return
         val group = (e.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
             ?: e.getCharSequence(Notification.EXTRA_TITLE))?.toString() ?: ""
@@ -26,8 +31,17 @@ class WaListener : NotificationListenerService() {
         (e.getParcelableArray(Notification.EXTRA_MESSAGES)?.lastOrNull() as? Bundle)
             ?.getCharSequence("text")?.toString()?.let { text = it }
         
-        Store.addRaw("$group: $text")
         if (group.isBlank() || text.isBlank()) return
+
+        // 7-second cooldown to prevent spam replies
+        val currentHash = text.hashCode()
+        if (currentHash == lastMessageHash && System.currentTimeMillis() - lastMessageTime < 7000) {
+            return
+        }
+        lastMessageHash = currentHash
+        lastMessageTime = System.currentTimeMillis()
+
+        Store.addRaw("$group: $text")
         
         val g = Store.groupFor(group) ?: run {
             Store.addGroup(group); Store.groupFor(group)
@@ -54,7 +68,6 @@ class WaListener : NotificationListenerService() {
         if (match.needsConfirmation) {
             reply(n, match.suggestion)
             Store.addMessage("OUT: [asks for confirmation on ${match.pkg.name}]")
-            // Trigger alarm for user to check
             Store.alarmActive = true
             Alarm.start()
         } else {
@@ -68,7 +81,6 @@ class WaListener : NotificationListenerService() {
             } else {
                 val task = "${parsed.network},${match.pkg.gb},${match.pkg.days},${match.pkg.name},${parsed.number}"
                 Store.pendingTask = task
-                // Start Easypaisa
                 val intent = packageManager.getLaunchIntentForPackage("pk.com.telenor.phoenix")
                 intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivity(intent)
