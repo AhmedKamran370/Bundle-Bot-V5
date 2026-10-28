@@ -4,20 +4,26 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <application android:label="BundleBot" android:icon="@mipmap/ic_launcher"
                  android:theme="@style/T" android:usesCleartextTraffic="true">
+        
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
         <service android:name=".WaListener" android:exported="true"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
         <service android:name=".A11y" android:exported="false"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
@@ -25,5 +31,8 @@
             </intent-filter>
             <meta-data android:name="android.accessibilityservice" android:resource="@xml/a11y" />
         </service>
+
+        <!-- NEW FOREGROUND SERVICE -->
+        <service android:name=".BgService" android:exported="false" android:foregroundServiceType="dataSync" />
     </application>
 </manifest>
