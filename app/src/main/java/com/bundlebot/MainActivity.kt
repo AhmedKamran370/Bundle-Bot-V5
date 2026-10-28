@@ -120,14 +120,13 @@ class MainActivity : Activity() {
             val inputStream = contentResolver.openInputStream(uri) ?: return
             val bufferedStream = BufferedInputStream(inputStream)
             
-            // Read the first 4 bytes to detect the TRUE file type, ignoring the file name
             bufferedStream.mark(4)
             val header = ByteArray(4)
             bufferedStream.read(header)
             bufferedStream.reset()
 
-            val isDocx = header[0] == 0x50.toByte() && header[1] == 0x4B.toByte() // 'P' 'K' (ZIP/DOCX)
-            val isPdf = header[0] == 0x25.toByte() && header[1] == 0x50.toByte()  // '%' 'P' (PDF)
+            val isDocx = header[0] == 0x50.toByte() && header[1] == 0x4B.toByte()
+            val isPdf = header[0] == 0x25.toByte() && header[1] == 0x50.toByte()
 
             if (isPdf) {
                 Toast.makeText(this, "PDFs are not supported. Please upload DOCX or TXT.", Toast.LENGTH_LONG).show()
@@ -135,18 +134,17 @@ class MainActivity : Activity() {
             }
 
             val pkgs: List<Package> = if (isDocx) {
-                PackageParser.fromDocx(bufferedStream)
+                PackageParser.fromDocx(bufferedStream, Store.pendingUploadNetwork)
             } else {
-                // Read as text (Try UTF-8)
                 val text = bufferedStream.bufferedReader(Charsets.UTF_8).readText()
-                PackageParser.fromText(text)
+                PackageParser.fromText(text, Store.pendingUploadNetwork)
             }
             
             if (pkgs.isEmpty()) {
                 Toast.makeText(this, "Could not find any packages. Try saving as a TXT file.", Toast.LENGTH_LONG).show()
             } else {
                 for (p in pkgs) Store.upsertPackage(p, null)
-                Toast.makeText(this, "Imported ${pkgs.size} packages!", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Imported ${pkgs.size} ${Store.pendingUploadNetwork} packages!", Toast.LENGTH_LONG).show()
                 rebuild()
             }
         } catch (e: Exception) {
