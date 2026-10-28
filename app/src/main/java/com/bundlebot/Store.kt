@@ -27,6 +27,8 @@ object Store {
         set(v) { sp.edit().putString("ptask", v).apply() }
     
     var pickRecording = false
+    var pendingUploadNetwork: String = "Jazz" // Remembers which SIM you are uploading
+    
     var recordFilter: String
         get() = sp.getString("rf", "Today")!!
         set(v) { sp.edit().putString("rf", v).apply() }
