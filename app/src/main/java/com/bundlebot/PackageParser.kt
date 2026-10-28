@@ -8,60 +8,74 @@ object PackageParser {
         val out = mutableListOf<Package>()
         var currentSec = "Other"
 
-        for (line in text.lines()) {
-            // Clean the line of table borders, asterisks, backslashes
-            var l = line.replace("|", " ")
-                .replace("+", " ")
-                .replace("-", " ")
-                .replace("*", "")
-                .replace("\\", "")
-                .replace(Regex("\\s+"), " ")
-                .trim()
-
+        for (rawLine in text.lines()) {
+            var l = rawLine.trim()
             if (l.isEmpty()) continue
 
             // Detect Section Headers (e.g., "Monthly All Data Packages")
             if (l.contains("Package", true) && !l.any { it.isDigit() } && !l.contains("SR.NO", true)) {
-                currentSec = l
+                currentSec = l.replace("|", "").trim()
                 continue
             }
 
-            // Extract GB
-            val gbMatch = Regex("""(\d+)\s*(?:GB|gb)""").find(l)
-            val gb = gbMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
-
-            // Extract Price
+            var gb = 0
             var price = 0
-            // 1. Look for explicit currency like SAR 46, Rs 100, PKR 200
-            val explicitPrice = Regex("""(?:SAR|Rs\.?|PKR)\s*(\d+)""", RegexOption.IGNORE_CASE).find(l)
-            
-            if (explicitPrice != null) {
-                price = explicitPrice.groupValues[1].toIntOrNull() ?: 0
+            var name = ""
+
+            if (l.contains("|")) {
+                // TABLE FORMAT (From our custom DOCX parser)
+                val cells = l.split("|").map { it.trim() }
+                
+                for (i in cells.indices) {
+                    val cell = cells[i]
+                    
+                    // Extract GB
+                    val gbMatch = Regex("""(\d+)\s*(?:GB|gb)""").find(cell)
+                    if (gbMatch != null && gb == 0) {
+                        gb = gbMatch.groupValues[1].toIntOrNull() ?: 0
+                        if (cell.replace(gbMatch.value, "").trim().isEmpty() && i > 0) {
+                            name = cells[i-1] // Name is in the previous cell
+                        } else {
+                            name = cell.substringBefore(gbMatch.value).trim()
+                        }
+                    }
+                    
+                    // Extract Price (Extract ALL digits from the price cell to fix split numbers)
+                    if (price == 0 && (cell.contains("SAR", true) || cell.contains("Rs", true) || cell.contains("PKR", true))) {
+                        val numOnly = cell.replace(Regex("[^0-9]"), "") // Removes spaces, SAR, etc.
+                        if (numOnly.isNotEmpty()) price = numOnly.toIntOrNull() ?: 0
+                    }
+                }
             } else {
-                // 2. If no currency found, find ALL numbers in the line
-                val allNumbers = Regex("""\d+""").findAll(l).map { it.value.toInt() }.toList()
-                if (allNumbers.isNotEmpty()) {
-                    // The price is usually the last number in the row (excluding tiny numbers)
-                    val possiblePrices = allNumbers.filter { it != gb && it > 5 }
-                    if (possiblePrices.isNotEmpty()) {
-                        price = possiblePrices.last() 
+                // STANDARD TEXT FORMAT
+                l = l.replace("*", "").replace("\\", "").replace(Regex("\\s+"), " ")
+                val gbMatch = Regex("""(\d+)\s*(?:GB|gb)""").find(l)
+                if (gbMatch != null) {
+                    gb = gbMatch.groupValues[1].toIntOrNull() ?: 0
+                    name = l.substringBefore(gbMatch.value)
+                }
+                
+                val priceMatch = Regex("""(?:SAR|Rs\.?|PKR)\s*(\d+)""", RegexOption.IGNORE_CASE).find(l)
+                if (priceMatch != null) {
+                    price = priceMatch.groupValues[1].toIntOrNull() ?: 0
+                } else {
+                    val allNums = Regex("""\d+""").findAll(l).map { it.value.toInt() }.toList()
+                    if (allNums.isNotEmpty()) {
+                        val possible = allNums.filter { it != gb && it > 5 }
+                        if (possible.isNotEmpty()) price = possible.last()
                     }
                 }
             }
 
-            // Skip lines without GB or price (like voice-only packages)
-            if (gb == 0 || price == 0) continue
-
-            // Extract Name
-            var name = l
-            if (gbMatch != null) name = name.substringBefore(gbMatch.value)
+            name = name.replace(Regex("^\\d+\\.?\\s*"), "") // Remove "1. "
+                .replace("*", "")
+                .trim()
             
-            // Remove leading serial numbers like "1. " or "10 "
-            name = name.replace(Regex("^\\d+\\.?\\s*"), "").trim()
-            if (name.isEmpty()) name = "$gb GB"
+            if (name.isEmpty() && gb > 0) name = "$gb GB"
 
-            // Use the forcedNet (the SIM card the user clicked on)
-            out.add(Package(name, forcedNet, currentSec, gb, 30, price))
+            if (gb > 0 && price > 0) {
+                out.add(Package(name, forcedNet, currentSec, gb, 30, price))
+            }
         }
         return out
     }
@@ -74,11 +88,11 @@ object PackageParser {
                     if (entry.name == "word/document.xml") {
                         val xmlText = zip.bufferedReader().readText()
                         
-                        // MAGIC FIX: Convert Word XML tables properly
+                        // XML to Text conversion that keeps table cells together
                         val cleanText = xmlText
-                            .replace("</w:tc>", " ")  // End of a cell -> space (keeps row together)
-                            .replace("</w:tr>", "\n") // End of a row -> newline
-                            .replace(Regex("<[^>]*>"), " ") // Remove all XML tags
+                            .replace("</w:tc>", "|") // Mark end of a cell
+                            .replace("</w:tr>", "\n") // Mark end of a row
+                            .replace(Regex("<[^>]*>"), " ") // Remove XML tags
                             .replace("&amp;", "&")
                             .replace(Regex("[ \t]+"), " ") // Collapse spaces but NOT newlines
                             .replace(Regex("\n+"), "\n") // Collapse multiple newlines
