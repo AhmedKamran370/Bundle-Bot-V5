@@ -31,7 +31,6 @@ object Store {
         get() = sp.getString("rf", "Today")!!
         set(v) { sp.edit().putString("rf", v).apply() }
 
-    // Easypaisa PIN storage
     var easypaisaPin: String
         get() = sp.getString("epin", "")!!
         set(v) { sp.edit().putString("epin", v).apply() }
@@ -64,6 +63,7 @@ object Store {
     fun matchPackage(network: String, gb: Int, days: Int, name: String, price: Int): MatchResult {
         val list = packages().filter { it.network.equals(network, true) || network.isEmpty() }
 
+        // 1. PRIORITY: Match by GB
         if (gb > 0) {
             val gbMatches = list.filter { it.gb == gb && (days == 0 || it.days == days) }
             if (gbMatches.isNotEmpty()) {
@@ -77,15 +77,23 @@ object Store {
             }
         }
 
+        // 2. Match by Price
         if (price > 0) {
             val priceMatches = list.filter { abs(it.price - price) <= 150 }
             if (priceMatches.isNotEmpty()) return MatchResult(priceMatches.first(), false, "")
         }
 
+        // 3. Keyword Match (like "imo", "social") -> Alert User Only, No Client Reply
         if (name.isNotBlank()) {
-            val keywordMatch = list.firstOrNull { it.name.contains(name, true) || it.section.contains(name, true) }
-            if (keywordMatch != null) {
-                return MatchResult(keywordMatch, true, "I found ${keywordMatch.name} (${keywordMatch.gb}GB) for Rs. ${keywordMatch.price}. Is this what you meant?")
+            val keywordMatches = list.filter {
+                it.name.contains(name, true) || it.section.contains(name, true) ||
+                (name.contains("imo", true) && (it.name.contains("social", true) || it.name.contains("imo", true)))
+            }
+            
+            if (keywordMatches.isNotEmpty()) {
+                val highestGbPkg = keywordMatches.maxByOrNull { it.gb } ?: keywordMatches.first()
+                // Return needsConfirmation = true, but the suggestion is blank
+                return MatchResult(highestGbPkg, true, "") 
             }
         }
 
@@ -235,7 +243,6 @@ object Store {
         }
     }
     
-    // 0370 added for Zong
     fun prefixMap(): Map<String, String> = mapOf(
         "030" to "Jazz", "031" to "Zong", "032" to "Warid", "033" to "Ufone",
         "034" to "Telenor", "037" to "Jazz", "0370" to "Zong", "038" to "Ufone", "039" to "Zong"
