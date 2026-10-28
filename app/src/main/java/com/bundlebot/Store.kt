@@ -31,6 +31,11 @@ object Store {
         get() = sp.getString("rf", "Today")!!
         set(v) { sp.edit().putString("rf", v).apply() }
 
+    // Easypaisa PIN storage
+    var easypaisaPin: String
+        get() = sp.getString("epin", "")!!
+        set(v) { sp.edit().putString("epin", v).apply() }
+
     fun packages(): List<Package> = (JSONArray(sp.getString("pk", "[]"))).let { arr ->
         (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
@@ -59,35 +64,26 @@ object Store {
     fun matchPackage(network: String, gb: Int, days: Int, name: String, price: Int): MatchResult {
         val list = packages().filter { it.network.equals(network, true) || network.isEmpty() }
 
-        // 1. PRIORITY: Match by GB
         if (gb > 0) {
             val gbMatches = list.filter { it.gb == gb && (days == 0 || it.days == days) }
             if (gbMatches.isNotEmpty()) {
-                // If the client mentioned a price, check if it's close to our list price (within 150 Rs margin)
                 if (price > 0) {
                     val closest = gbMatches.minByOrNull { abs(it.price - price) }
                     if (closest != null && abs(closest.price - price) <= 150) {
                         return MatchResult(closest, false, "")
                     }
                 }
-                // If no price mentioned, or price is completely off but GB matches, just give the GB match
                 return MatchResult(gbMatches.first(), false, "")
             }
         }
 
-        // 2. Match by Price (if client didn't specify GB)
         if (price > 0) {
             val priceMatches = list.filter { abs(it.price - price) <= 150 }
-            if (priceMatches.isNotEmpty()) {
-                return MatchResult(priceMatches.first(), false, "")
-            }
+            if (priceMatches.isNotEmpty()) return MatchResult(priceMatches.first(), false, "")
         }
 
-        // 3. Keyword match (like "imo" or "social") - Needs Confirmation
         if (name.isNotBlank()) {
-            val keywordMatch = list.firstOrNull { 
-                it.name.contains(name, true) || it.section.contains(name, true) 
-            }
+            val keywordMatch = list.firstOrNull { it.name.contains(name, true) || it.section.contains(name, true) }
             if (keywordMatch != null) {
                 return MatchResult(keywordMatch, true, "I found ${keywordMatch.name} (${keywordMatch.gb}GB) for Rs. ${keywordMatch.price}. Is this what you meant?")
             }
@@ -238,14 +234,17 @@ object Store {
             else -> pkr
         }
     }
+    
+    // 0370 added for Zong
     fun prefixMap(): Map<String, String> = mapOf(
         "030" to "Jazz", "031" to "Zong", "032" to "Warid", "033" to "Ufone",
-        "034" to "Telenor", "037" to "Jazz", "038" to "Ufone", "039" to "Zong"
+        "034" to "Telenor", "037" to "Jazz", "0370" to "Zong", "038" to "Ufone", "039" to "Zong"
     )
     fun networkFor(number: String): String {
         val digits = number.filter { it.isDigit() }
-        val p = digits.take(3)
-        return prefixMap()[p] ?: "unknown"
+        val p4 = digits.take(4)
+        val p3 = digits.take(3)
+        return prefixMap()[p4] ?: prefixMap()[p3] ?: "unknown"
     }
 
     fun screenRecordingDone(): Boolean = sp.getBoolean("rec", false)
