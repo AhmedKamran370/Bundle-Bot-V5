@@ -53,6 +53,20 @@ object Pages {
         val c = col(a)
         c.addView(tv(a, "Welcome", TEXT, 24f))
         c.addView(tv(a, "Today: ${Store.todayCount()} sales • ${Store.convert(Store.todayTotal())} ${Store.currency()}", MUTED))
+        
+        if (Store.groups().isEmpty()) {
+            val alert = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
+            alert.addView(tv(a, "⚠ Setup Required", WARN, 18f))
+            alert.addView(tv(a, "You haven't added any WhatsApp groups yet. Go to the Setup tab to add your groups.", MUTED, 12f))
+            alert.addView(btn(a, "Go to Setup", BLUE) { (a as MainActivity).rebuild(); a.findViewById<View>(android.R.id.content).post { Pages.setup(a) } })
+            c.addView(card(a, alert))
+        } else if (Store.groups().none { it.watched }) {
+            val alert = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
+            alert.addView(tv(a, "⚠ Automation Paused", WARN, 18f))
+            alert.addView(tv(a, "You have groups added, but none are ticked. Go to Setup and tick the groups you want to maintain.", MUTED, 12f))
+            c.addView(card(a, alert))
+        }
+
         if (Store.alarmActive) {
             val al = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
             al.addView(tv(a, "⚠ ERROR — manual action needed", WARN, 18f))
@@ -61,13 +75,11 @@ object Pages {
             })
             c.addView(card(a, al))
         }
+        
         val perms = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
         perms.addView(tv(a, "Permissions", ACCENT, 16f))
         perms.addView(btn(a, "WhatsApp message access") { a.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) })
         perms.addView(btn(a, "Screen control (Easypaisa)") { a.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) })
-        perms.addView(btn(a, "Disable battery saver") {
-            try { a.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: Exception) {}
-        })
         c.addView(card(a, perms))
         return wrap(c)
     }
@@ -79,10 +91,11 @@ object Pages {
         if (msgs.isEmpty()) c.addView(tv(a, "Nothing yet.", MUTED))
         for (m in msgs.takeLast(50)) {
             val isIn = m.startsWith("IN:")
+            val isErr = m.contains("⚠")
             val box = TextView(a).apply {
                 text = m.substringAfter(":", m).trim(); setTextColor(Color.WHITE)
                 setPadding(20, 15, 20, 15); textSize = 14f
-                setBackgroundColor(Color.parseColor(if (isIn) "#334155" else "#166534"))
+                setBackgroundColor(Color.parseColor(if (isIn) "#334155" else if (isErr) "#7F1D1D" else "#166534"))
             }
             c.addView(box)
             c.addView(View(a).apply { layoutParams = LinearLayout.LayoutParams(-1, 6) })
@@ -253,9 +266,10 @@ object Pages {
 
     fun setup(a: Activity): View {
         val c = col(a)
-        c.addView(tv(a, "Setup", TEXT, 24f))
+        c.addView(tv(a, "Setup Wizard", TEXT, 24f))
+        c.addView(tv(a, "Follow these steps to start the automation.", MUTED, 12f))
 
-        c.addView(tv(a, "Which WhatsApp to read?", TEXT, 16f))
+        c.addView(tv(a, "1. Select WhatsApp App", ACCENT, 18f))
         val rg = RadioGroup(a)
         listOf("both" to "Both", "wa" to "WhatsApp only", "biz" to "WhatsApp Business only").forEach { (k, l) ->
             rg.addView(RadioButton(a).apply {
@@ -265,29 +279,25 @@ object Pages {
         }
         c.addView(rg)
 
-        c.addView(tv(a, "Easypaisa MPIN (Required for Automation)", TEXT, 16f))
-        val pin = EditText(a).apply { 
-            setText(Store.easypaisaPin); hint = "Enter 5-digit PIN"
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
-        }
-        c.addView(pin)
-        c.addView(btn(a, "Save PIN") { 
-            Store.easypaisaPin = pin.text.toString().trim()
-            Toast.makeText(a, "PIN Saved", Toast.LENGTH_SHORT).show() 
+        c.addView(tv(a, "2. Add Groups to Maintain", ACCENT, 18f))
+        c.addView(tv(a, "Type the exact name of your WhatsApp group below and press Add.", MUTED, 12f))
+        
+        val inputRow = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL }
+        val groupInput = EditText(a).apply { hint = "e.g. Kakarot"; layoutParams = LinearLayout.LayoutParams(0, -2, 1f) }
+        inputRow.addView(groupInput)
+        inputRow.addView(btn(a, "Add") {
+            val name = groupInput.text.toString().trim()
+            if (name.isNotEmpty()) {
+                Store.addGroup(name)
+                groupInput.setText("")
+                (a as MainActivity).rebuild()
+            }
         })
-
-        // --- NEW AI TRAINING SECTION ---
-        c.addView(tv(a, "Train AI via Screen Recording", TEXT, 16f))
-        c.addView(tv(a, "Upload a one-time brief recording of you buying a package in Easypaisa so the app can learn the steps.", MUTED, 12f))
-        c.addView(tv(a, "Status: ${if (Store.screenRecordingDone()) "Uploaded ✅" else "Not Uploaded ❌"}", MUTED, 12f))
-        c.addView(btn(a, "Upload Recording", BLUE) { 
-            Store.pickRecording = true
-            pickFile(a) 
-        })
-        // -------------------------------
-
-        c.addView(tv(a, "Groups & currency", TEXT, 16f))
-        if (Store.groups().isEmpty()) c.addView(tv(a, "No groups yet — they appear here when WhatsApp sends a notification.", MUTED, 12f))
+        c.addView(inputRow)
+        
+        c.addView(tv(a, "Your Groups (Tick to start automation):", TEXT, 14f))
+        if (Store.groups().isEmpty()) c.addView(tv(a, "No groups added yet.", MUTED, 12f))
+        
         for (g in Store.groups()) {
             val row = LinearLayout(a).apply {
                 orientation = LinearLayout.HORIZONTAL; setPadding(15, 10, 15, 10)
@@ -306,10 +316,24 @@ object Pages {
             c.addView(row)
         }
 
-        c.addView(tv(a, "AI key (free Gemini from aistudio.google.com)", TEXT, 16f))
-        val key = EditText(a).apply { setText(Store.aiKey()); hint = "API key" }
-        c.addView(key)
-        c.addView(btn(a, "Save AI key") { Store.setAiKey(key.text.toString().trim()); Toast.makeText(a, "Saved", Toast.LENGTH_SHORT).show() })
+        c.addView(tv(a, "3. Easypaisa Settings", ACCENT, 18f))
+        val pin = EditText(a).apply { 
+            setText(Store.easypaisaPin); hint = "Enter 5-digit MPIN"
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        }
+        c.addView(pin)
+        c.addView(btn(a, "Save PIN") { 
+            Store.easypaisaPin = pin.text.toString().trim()
+            Toast.makeText(a, "PIN Saved", Toast.LENGTH_SHORT).show() 
+        })
+
+        c.addView(tv(a, "4. Train AI (Optional)", ACCENT, 18f))
+        c.addView(tv(a, "Status: ${if (Store.screenRecordingDone()) "Uploaded ✅" else "Not Uploaded ❌"}", MUTED, 12f))
+        c.addView(btn(a, "Upload Recording", BLUE) { 
+            Store.pickRecording = true
+            pickFile(a) 
+        })
+        
         return wrap(c)
     }
 
