@@ -14,6 +14,8 @@ class WaListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         Store.init(this)
         val p = sbn.packageName
+        
+        // 1. Check if it's WhatsApp
         val allowed = when (Store.source()) {
             "wa" -> p == "com.whatsapp"
             "biz" -> p == "com.whatsapp.w4b"
@@ -33,12 +35,20 @@ class WaListener : NotificationListenerService() {
         
         if (group.isBlank() || text.isBlank()) return
 
-        val g = Store.groupFor(group) ?: return
-        if (!g.watched) return
+        // 2. Check if the group is in our system. 
+        // If not, add it automatically so the user can see it in Setup and tick it.
+        var g = Store.groupFor(group)
+        if (g == null) {
+            Store.addGroup(group)
+            Store.addMessage("NEW GROUP DETECTED: '$group'. Go to Setup to enable it.")
+            return // Don't process messages until the user enables it
+        }
 
-        // 30-second cooldown to completely stop spam replies
+        if (!g.watched) return // Ignore if user didn't tick the box
+
+        // 3. 15-second cooldown to stop spam
         val currentHash = text.hashCode()
-        if (currentHash == lastMessageHash && System.currentTimeMillis() - lastMessageTime < 30000) {
+        if (currentHash == lastMessageHash && System.currentTimeMillis() - lastMessageTime < 15000) {
             return
         }
         lastMessageHash = currentHash
@@ -67,10 +77,14 @@ class WaListener : NotificationListenerService() {
             Store.alarmActive = true
             Alarm.start()
         } else {
-            // CLEAN, PROFESSIONAL REPLY TEXT
-            val replyMsg = "Received request for ${parsed.number} • ${match.pkg.name} (${match.pkg.gb}GB). Please wait..."
-            reply(n, replyMsg)
-            Store.addMessage("OUT: $replyMsg")
+            // Send reply and check if it was successful
+            val success = reply(n, "Received request for ${parsed.number} • ${match.pkg.name} (${match.pkg.gb}GB). Please wait...")
+            
+            if (success) {
+                Store.addMessage("OUT: Confirmed ${match.pkg.name}")
+            } else {
+                Store.addMessage("⚠ FAILED TO REPLY: WhatsApp didn't provide a reply button for this notification. (Try keeping the chat unread or unlocking the screen).")
+            }
             
             if (!A11y.isRunning) {
                 Store.alarmActive = true
@@ -86,16 +100,21 @@ class WaListener : NotificationListenerService() {
         }
     }
 
-    private fun reply(n: Notification, msg: String) {
-        val actions = n.actions ?: return
+    private fun reply(n: Notification, msg: String): Boolean {
+        val actions = n.actions ?: return false
         for (a in actions) {
             val inputs = a.remoteInputs ?: continue
             val results = Bundle()
             for (inp in inputs) results.putCharSequence(inp.resultKey, msg)
             val intent = Intent().addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             RemoteInput.addResultsToIntent(inputs, intent, results)
-            try { a.actionIntent.send(this, 0, intent) } catch (_: Exception) {}
-            return
+            try { 
+                a.actionIntent.send(this, 0, intent) 
+                return true // Reply successful
+            } catch (_: Exception) {
+                return false
+            }
         }
+        return false // No reply action found
     }
 }
