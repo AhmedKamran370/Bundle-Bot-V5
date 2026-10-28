@@ -35,6 +35,8 @@ object Store {
         get() = sp.getString("epin", "")!!
         set(v) { sp.edit().putString("epin", v).apply() }
 
+    fun clearPackages() { sp.edit().putString("pk", "[]").apply() }
+
     fun packages(): List<Package> = (JSONArray(sp.getString("pk", "[]"))).let { arr ->
         (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
@@ -63,7 +65,6 @@ object Store {
     fun matchPackage(network: String, gb: Int, days: Int, name: String, price: Int): MatchResult {
         val list = packages().filter { it.network.equals(network, true) || network.isEmpty() }
 
-        // 1. PRIORITY: Match by GB
         if (gb > 0) {
             val gbMatches = list.filter { it.gb == gb && (days == 0 || it.days == days) }
             if (gbMatches.isNotEmpty()) {
@@ -77,26 +78,21 @@ object Store {
             }
         }
 
-        // 2. Match by Price
         if (price > 0) {
             val priceMatches = list.filter { abs(it.price - price) <= 150 }
             if (priceMatches.isNotEmpty()) return MatchResult(priceMatches.first(), false, "")
         }
 
-        // 3. Keyword Match (like "imo", "social") -> Alert User Only, No Client Reply
         if (name.isNotBlank()) {
             val keywordMatches = list.filter {
                 it.name.contains(name, true) || it.section.contains(name, true) ||
                 (name.contains("imo", true) && (it.name.contains("social", true) || it.name.contains("imo", true)))
             }
-            
             if (keywordMatches.isNotEmpty()) {
                 val highestGbPkg = keywordMatches.maxByOrNull { it.gb } ?: keywordMatches.first()
-                // Return needsConfirmation = true, but the suggestion is blank
                 return MatchResult(highestGbPkg, true, "") 
             }
         }
-
         return MatchResult(null, false, "")
     }
 
