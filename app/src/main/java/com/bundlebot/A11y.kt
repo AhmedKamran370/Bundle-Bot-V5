@@ -31,7 +31,7 @@ class A11y : AccessibilityService() {
         val gb = parts[1]
         val days = parts[2]
         val pkgName = parts[3]
-        val number = parts[4]
+        val number = parts[4] // This is now a perfectly clean 11-digit number!
 
         val root = rootInActiveWindow ?: return
         
@@ -48,7 +48,7 @@ class A11y : AccessibilityService() {
                 return
             }
         } else {
-            hasTypedPin = false // Reset once logged in
+            hasTypedPin = false 
         }
 
         // 2. Check for Loan Warning
@@ -60,7 +60,7 @@ class A11y : AccessibilityService() {
         // 3. Click "Loads & Packages"
         if (clickText(root, "Loads & Packages") || clickText(root, "Load & Packages")) return
 
-        // 4. Enter Number
+        // 4. Enter Number (Pastes the clean 03XXXXXXXXX)
         val numberField = findEditText(root, "Enter Number")
         if (numberField != null) {
             val args = Bundle()
