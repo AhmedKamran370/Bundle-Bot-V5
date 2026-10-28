@@ -14,6 +14,7 @@ object Pages {
     private const val BG = "#0F172A"; private const val CARD = "#1E293B"
     private const val TEXT = "#F1F5F9"; private const val MUTED = "#94A3B8"
     private const val ACCENT = "#22C55E"; private const val WARN = "#EF4444"
+    private const val BLUE = "#3B82F6"
 
     private fun tv(a: Activity, s: String, c: String = TEXT, sz: Float = 14f) = TextView(a).apply {
         text = s; setTextColor(Color.parseColor(c)); textSize = sz; setPadding(0, 10, 0, 10)
@@ -29,9 +30,9 @@ object Pages {
         layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 15 }
     }
     private fun wrap(v: View) = ScrollView(v.context).apply { addView(v) }
-    private fun btn(a: Activity, t: String, f: () -> Unit) = Button(a).apply {
+    private fun btn(a: Activity, t: String, bg: String = ACCENT, f: () -> Unit) = Button(a).apply {
         text = t; setOnClickListener { f() }; setTextColor(Color.WHITE)
-        setBackgroundColor(Color.parseColor(ACCENT))
+        setBackgroundColor(Color.parseColor(bg))
     }
     
     private fun simCard(a: Activity, title: String, color: String, content: View) = LinearLayout(a).apply {
@@ -55,7 +56,7 @@ object Pages {
         if (Store.alarmActive) {
             val al = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
             al.addView(tv(a, "⚠ ERROR — manual action needed", WARN, 18f))
-            al.addView(btn(a, "Stop alarm") {
+            al.addView(btn(a, "Stop alarm", WARN) {
                 Alarm.stop(a); Store.alarmActive = false; (a as MainActivity).rebuild()
             })
             c.addView(card(a, al))
@@ -92,29 +93,24 @@ object Pages {
     fun packages(a: Activity): View {
         val c = col(a)
         c.addView(tv(a, "Packages", TEXT, 24f))
-        c.addView(btn(a, "Upload list (TXT, CSV, DOCX)") { Store.pickRecording = false; pickFile(a) })
-        c.addView(btn(a, "Add package manually") { editPackage(a, null) })
         
         // DELETE ALL BUTTON
-        val delBtn = Button(a).apply {
-            text = "Delete All Packages"; setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor(WARN))
-            setOnClickListener {
-                Store.clearPackages()
-                (a as MainActivity).rebuild()
-            }
-        }
-        c.addView(delBtn)
+        c.addView(btn(a, "Delete All Packages", WARN) {
+            Store.clearPackages()
+            (a as MainActivity).rebuild()
+        })
 
         val allPkgs = Store.packages()
-        val networks = listOf("Zong", "Jazz", "Telenor", "Ufone", "Other")
-        val colors = mapOf("Zong" to "#22C55E", "Jazz" to "#EF4444", "Telenor" to "#3B82F6", "Ufone" to "#F59E0B", "Other" to "#94A3B8")
+        val networks = listOf("Jazz", "Zong", "Telenor", "Ufone", "Other")
+        val colors = mapOf("Jazz" to "#EF4444", "Zong" to "#22C55E", "Telenor" to "#3B82F6", "Ufone" to "#F59E0B", "Other" to "#94A3B8")
 
         for (net in networks) {
-            val netPkgs = allPkgs.filter { it.network.equals(net, true) || (net == "Other" && it.network !in networks) }
-            if (netPkgs.isEmpty() && net != "Other") continue
+            // Get packages only for this specific SIM
+            val netPkgs = allPkgs.filter { it.network.equals(net, true) }
             
             val netContent = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
+            
+            // 1. Show existing packages
             for (p in netPkgs) {
                 val row = LinearLayout(a).apply {
                     orientation = LinearLayout.HORIZONTAL; setPadding(10, 10, 10, 10)
@@ -131,6 +127,14 @@ object Pages {
                 row.addView(btn(a, "Edit") { editPackage(a, p) })
                 netContent.addView(row)
             }
+
+            // 2. Add the "Add Packages" button INSIDE the SIM card
+            netContent.addView(btn(a, "➕ Add $net Packages", BLUE) {
+                Store.pendingUploadNetwork = net
+                Store.pickRecording = false
+                pickFile(a)
+            })
+
             c.addView(simCard(a, "$net SIM", colors[net] ?: "#94A3B8", netContent))
         }
         return wrap(c)
