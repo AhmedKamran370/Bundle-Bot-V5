@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.View
 import android.widget.*
+import java.io.BufferedInputStream
 
 class MainActivity : Activity() {
     private lateinit var content: FrameLayout
@@ -115,22 +116,34 @@ class MainActivity : Activity() {
             return
         }
 
-        val name = uri.lastPathSegment?.lowercase() ?: ""
-        
-        if (name.endsWith(".pdf") || name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg")) {
-            Toast.makeText(this, "Please upload a TXT, CSV, or DOCX file.", Toast.LENGTH_LONG).show()
-            return
-        }
-
         try {
-            val input = contentResolver.openInputStream(uri) ?: return
-            val pkgs: List<Package> = when {
-                name.endsWith(".docx") -> PackageParser.fromDocx(input)
-                else -> PackageParser.fromText(input.bufferedReader().readText())
+            val inputStream = contentResolver.openInputStream(uri) ?: return
+            val bufferedStream = BufferedInputStream(inputStream)
+            
+            // Read the first 4 bytes to detect the TRUE file type, ignoring the file name
+            bufferedStream.mark(4)
+            val header = ByteArray(4)
+            bufferedStream.read(header)
+            bufferedStream.reset()
+
+            val isDocx = header[0] == 0x50.toByte() && header[1] == 0x4B.toByte() // 'P' 'K' (ZIP/DOCX)
+            val isPdf = header[0] == 0x25.toByte() && header[1] == 0x50.toByte()  // '%' 'P' (PDF)
+
+            if (isPdf) {
+                Toast.makeText(this, "PDFs are not supported. Please upload DOCX or TXT.", Toast.LENGTH_LONG).show()
+                return
+            }
+
+            val pkgs: List<Package> = if (isDocx) {
+                PackageParser.fromDocx(bufferedStream)
+            } else {
+                // Read as text (Try UTF-8)
+                val text = bufferedStream.bufferedReader(Charsets.UTF_8).readText()
+                PackageParser.fromText(text)
             }
             
             if (pkgs.isEmpty()) {
-                Toast.makeText(this, "Could not find any packages. Try saving the file as a TXT file.", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Could not find any packages. Try saving as a TXT file.", Toast.LENGTH_LONG).show()
             } else {
                 for (p in pkgs) Store.upsertPackage(p, null)
                 Toast.makeText(this, "Imported ${pkgs.size} packages!", Toast.LENGTH_LONG).show()
