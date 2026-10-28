@@ -33,13 +33,12 @@ class WaListener : NotificationListenerService() {
         
         if (group.isBlank() || text.isBlank()) return
 
-        // Check if this group is added and watched. If not, IGNORE completely.
         val g = Store.groupFor(group) ?: return
         if (!g.watched) return
 
-        // 7-second cooldown
+        // 30-second cooldown to completely stop spam replies
         val currentHash = text.hashCode()
-        if (currentHash == lastMessageHash && System.currentTimeMillis() - lastMessageTime < 7000) {
+        if (currentHash == lastMessageHash && System.currentTimeMillis() - lastMessageTime < 30000) {
             return
         }
         lastMessageHash = currentHash
@@ -64,14 +63,14 @@ class WaListener : NotificationListenerService() {
         }
 
         if (match.needsConfirmation) {
-            // DO NOT reply to the client.
-            // Only alert the user (you) via alarm and message log.
-            Store.addMessage("⚠ ALARM: Guessed package '${match.pkg.name}' (${match.pkg.gb}GB). Please do this manually.")
+            Store.addMessage("⚠ ALARM: Guessed package '${match.pkg.name}'. Please do this manually.")
             Store.alarmActive = true
             Alarm.start()
         } else {
-            reply(n, "Request received: ${parsed.number} • ${match.pkg.name} — processing now.")
-            Store.addMessage("OUT: [confirms ${match.pkg.name}]")
+            // CLEAN, PROFESSIONAL REPLY TEXT
+            val replyMsg = "Received request for ${parsed.number} • ${match.pkg.name} (${match.pkg.gb}GB). Please wait..."
+            reply(n, replyMsg)
+            Store.addMessage("OUT: $replyMsg")
             
             if (!A11y.isRunning) {
                 Store.alarmActive = true
