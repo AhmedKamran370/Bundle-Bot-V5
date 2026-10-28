@@ -27,7 +27,7 @@ object Store {
         set(v) { sp.edit().putString("ptask", v).apply() }
     
     var pickRecording = false
-    var pendingUploadNetwork: String = "Jazz" // Remembers which SIM you are uploading
+    var pendingUploadNetwork: String = "Jazz"
     
     var recordFilter: String
         get() = sp.getString("rf", "Today")!!
@@ -65,19 +65,20 @@ object Store {
     }
 
     fun matchPackage(network: String, gb: Int, days: Int, name: String, price: Int): MatchResult {
-        val list = packages().filter { it.network.equals(network, true) || network.isEmpty() }
+        val list = if (network == "unknown" || network.isEmpty()) packages() 
+                   else packages().filter { it.network.equals(network, true) }
 
         if (gb > 0) {
             val gbMatches = list.filter { it.gb == gb && (days == 0 || it.days == days) }
             if (gbMatches.isNotEmpty()) {
                 if (price > 0) {
                     val closest = gbMatches.minByOrNull { abs(it.price - price) }
-                    if (closest != null && abs(closest.price - price) <= 150) {
-                        return MatchResult(closest, false, "")
-                    }
+                    if (closest != null && abs(closest.price - price) <= 150) return MatchResult(closest, false, "")
                 }
                 return MatchResult(gbMatches.first(), false, "")
             }
+            val looseGbMatch = list.firstOrNull { it.gb == gb }
+            if (looseGbMatch != null) return MatchResult(looseGbMatch, false, "")
         }
 
         if (price > 0) {
@@ -242,7 +243,7 @@ object Store {
     }
     
     fun prefixMap(): Map<String, String> = mapOf(
-        "030" to "Jazz", "031" to "Zong", "032" to "Warid", "033" to "Ufone",
+        "030" to "Jazz", "031" to "Zong", "032" to "Jazz", "033" to "Ufone",
         "034" to "Telenor", "037" to "Jazz", "0370" to "Zong", "038" to "Ufone", "039" to "Zong"
     )
     fun networkFor(number: String): String {
