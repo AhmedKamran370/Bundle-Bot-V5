@@ -117,9 +117,8 @@ class MainActivity : Activity() {
 
         val name = uri.lastPathSegment?.lowercase() ?: ""
         
-        // Reject PDFs and Images so they don't become garbage text
         if (name.endsWith(".pdf") || name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg")) {
-            Toast.makeText(this, "Please upload a TXT, CSV, or DOCX file. The app cannot read PDFs/Images directly.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Please upload a TXT, CSV, or DOCX file.", Toast.LENGTH_LONG).show()
             return
         }
 
@@ -131,10 +130,10 @@ class MainActivity : Activity() {
             }
             
             if (pkgs.isEmpty()) {
-                Toast.makeText(this, "Could not read any packages from this file.", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Could not find any packages. Try saving the file as a TXT file.", Toast.LENGTH_LONG).show()
             } else {
                 for (p in pkgs) Store.upsertPackage(p, null)
-                Toast.makeText(this, "Imported ${pkgs.size} packages", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Imported ${pkgs.size} packages!", Toast.LENGTH_LONG).show()
                 rebuild()
             }
         } catch (e: Exception) {
