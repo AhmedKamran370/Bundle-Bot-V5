@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.provider.Settings
 import android.text.InputType
 import android.view.View
@@ -32,11 +33,26 @@ object Pages {
         text = t; setOnClickListener { f() }; setTextColor(Color.WHITE)
         setBackgroundColor(Color.parseColor(ACCENT))
     }
+    
+    // SIM Card UI helper
+    private fun simCard(a: Activity, title: String, color: String, content: View) = LinearLayout(a).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(20, 20, 20, 20)
+        val drawable = GradientDrawable().apply {
+            setColor(Color.parseColor(CARD))
+            setStroke(3, Color.parseColor(color))
+            cornerRadius = 25f
+        }
+        background = drawable
+        layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 20 }
+        addView(tv(a, title, color, 20f))
+        addView(content)
+    }
 
     fun home(a: Activity): View {
         val c = col(a)
         c.addView(tv(a, "Welcome", TEXT, 24f))
-        c.addView(tv(a, "Today: ${Store.todayCount()} sales • ${Store.todayTotal()} PKR", MUTED))
+        c.addView(tv(a, "Today: ${Store.todayCount()} sales • ${Store.convert(Store.todayTotal())} ${Store.currency()}", MUTED))
         if (Store.alarmActive) {
             val al = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
             al.addView(tv(a, "⚠ ERROR — manual action needed", WARN, 18f))
@@ -77,29 +93,35 @@ object Pages {
     fun packages(a: Activity): View {
         val c = col(a)
         c.addView(tv(a, "Packages", TEXT, 24f))
-        c.addView(btn(a, "Upload list (txt, csv, docx)") { Store.pickRecording = false; pickFile(a) })
+        c.addView(btn(a, "Upload list (TXT, CSV, DOCX)") { Store.pickRecording = false; pickFile(a) })
         c.addView(btn(a, "Add package manually") { editPackage(a, null) })
-        val groups = Store.packages().groupBy { it.network }
-        if (groups.isEmpty()) c.addView(tv(a, "No packages uploaded yet.", MUTED))
-        for ((net, list) in groups) {
-            c.addView(tv(a, net, ACCENT, 18f))
-            for ((sec, items) in list.groupBy { it.section }) {
-                c.addView(tv(a, sec, MUTED, 14f))
-                for (p in items) {
-                    val row = LinearLayout(a).apply {
-                        orientation = LinearLayout.HORIZONTAL; setPadding(15, 12, 15, 12)
-                        setBackgroundColor(Color.parseColor(CARD))
-                        layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 6 }
-                    }
-                    val info = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
-                    info.layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
-                    info.addView(tv(a, p.name, TEXT))
-                    info.addView(tv(a, "${p.gb} GB • ${p.days} days • ${p.price} PKR", MUTED, 12f))
-                    row.addView(info)
-                    row.addView(btn(a, "Edit") { editPackage(a, p) })
-                    c.addView(row)
+        
+        val allPkgs = Store.packages()
+        val networks = listOf("Zong", "Jazz", "Telenor", "Ufone", "Other")
+        val colors = mapOf("Zong" to "#22C55E", "Jazz" to "#EF4444", "Telenor" to "#3B82F6", "Ufone" to "#F59E0B", "Other" to "#94A3B8")
+
+        for (net in networks) {
+            val netPkgs = allPkgs.filter { it.network.equals(net, true) || (net == "Other" && it.network !in networks) }
+            if (netPkgs.isEmpty() && net != "Other") continue
+            
+            val netContent = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
+            for (p in netPkgs) {
+                val row = LinearLayout(a).apply {
+                    orientation = LinearLayout.HORIZONTAL; setPadding(10, 10, 10, 10)
+                    layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 8 }
                 }
+                val info = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
+                info.layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+                
+                info.addView(tv(a, p.name, TEXT, 16f))
+                val displayPrice = Store.convert(p.price)
+                info.addView(tv(a, "${p.section} • ${p.gb} GB • ${p.days} Days • $displayPrice ${Store.currency()}", MUTED, 12f))
+                
+                row.addView(info)
+                row.addView(btn(a, "Edit") { editPackage(a, p) })
+                netContent.addView(row)
             }
+            c.addView(simCard(a, "$net SIM", colors[net] ?: "#94A3B8", netContent))
         }
         return wrap(c)
     }
@@ -107,11 +129,11 @@ object Pages {
     private fun editPackage(a: Activity, p: Package?) {
         val ll = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; setPadding(30, 30, 30, 30) }
         val name = EditText(a).apply { hint = "Name"; setText(p?.name ?: "") }
-        val net = EditText(a).apply { hint = "Network (Jazz/Zong/Telenor/Ufone)"; setText(p?.network ?: "") }
-        val sec = EditText(a).apply { hint = "Section (Weekly/Monthly call/etc)"; setText(p?.section ?: "") }
+        val net = EditText(a).apply { hint = "Network (Zong/Jazz/Telenor/Ufone)"; setText(p?.network ?: "") }
+        val sec = EditText(a).apply { hint = "Section (Weekly/Monthly/etc)"; setText(p?.section ?: "") }
         val gb = EditText(a).apply { hint = "GB"; inputType = InputType.TYPE_CLASS_NUMBER; setText(p?.gb?.toString() ?: "") }
         val days = EditText(a).apply { hint = "Days"; inputType = InputType.TYPE_CLASS_NUMBER; setText(p?.days?.toString() ?: "") }
-        val price = EditText(a).apply { hint = "Price"; inputType = InputType.TYPE_CLASS_NUMBER; setText(p?.price?.toString() ?: "") }
+        val price = EditText(a).apply { hint = "Price (in PKR)"; inputType = InputType.TYPE_CLASS_NUMBER; setText(p?.price?.toString() ?: "") }
         listOf(name, net, sec, gb, days, price).forEach { ll.addView(it) }
         val d = AlertDialog.Builder(a).setView(ll)
             .setPositiveButton("Save") { _, _ ->
@@ -154,7 +176,7 @@ object Pages {
                 layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 6 }
             }
             box.addView(tv(a, "${r.number} — ${r.packageName}", TEXT))
-            box.addView(tv(a, "${r.time} • ${r.bank} • ${r.price} PKR", MUTED, 12f))
+            box.addView(tv(a, "${r.time} • ${r.bank} • ${Store.convert(r.price)} ${Store.currency()}", MUTED, 12f))
             c.addView(box)
         }
         return wrap(c)
@@ -172,7 +194,7 @@ object Pages {
                 layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 6 }
             }
             box.addView(tv(a, "${p.time} • ${p.number} • ${p.packageName}", TEXT))
-            box.addView(tv(a, "Price ${p.price} PKR (cropped from sent version)", MUTED, 12f))
+            box.addView(tv(a, "Price ${Store.convert(p.price)} ${Store.currency()} (cropped)", MUTED, 12f))
             c.addView(box)
         }
         return wrap(c)
@@ -181,6 +203,7 @@ object Pages {
     fun banks(a: Activity): View {
         val c = col(a)
         c.addView(tv(a, "Banks", TEXT, 24f))
+        c.addView(tv(a, "Add your Easypaisa account so the app knows your balance.", MUTED, 12f))
         c.addView(btn(a, "Add bank account") { editBank(a, null) })
         for (b in Store.banks()) {
             val box = LinearLayout(a).apply {
@@ -196,20 +219,15 @@ object Pages {
             box.addView(btn(a, "Edit") { editBank(a, b) })
             c.addView(box)
         }
-        c.addView(tv(a, "Low-funds policy: ${Store.lowFundsPolicy()}", ACCENT, 16f))
-        c.addView(btn(a, "Change policy") {
-            val opts = arrayOf("Switch to next bank", "Alert me only", "Pause payments")
-            AlertDialog.Builder(a).setItems(opts) { _, i -> Store.setLowFundsPolicy(opts[i]); (a as MainActivity).rebuild() }.show()
-        })
         return wrap(c)
     }
 
     private fun editBank(a: Activity, b: Bank?) {
         val ll = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; setPadding(30, 30, 30, 30) }
-        val n = EditText(a).apply { hint = "Bank"; setText(b?.name ?: "") }
-        val ac = EditText(a).apply { hint = "Account"; setText(b?.account ?: "") }
-        val ba = EditText(a).apply { hint = "Balance"; inputType = InputType.TYPE_CLASS_NUMBER; setText(b?.balance?.toString() ?: "") }
-        val lo = EditText(a).apply { hint = "Low threshold"; inputType = InputType.TYPE_CLASS_NUMBER; setText(b?.lowAt?.toString() ?: "200") }
+        val n = EditText(a).apply { hint = "Bank (e.g. Easypaisa)"; setText(b?.name ?: "") }
+        val ac = EditText(a).apply { hint = "Account Number"; setText(b?.account ?: "") }
+        val ba = EditText(a).apply { hint = "Current Balance (PKR)"; inputType = InputType.TYPE_CLASS_NUMBER; setText(b?.balance?.toString() ?: "") }
+        val lo = EditText(a).apply { hint = "Low threshold (e.g. 200)"; inputType = InputType.TYPE_CLASS_NUMBER; setText(b?.lowAt?.toString() ?: "200") }
         listOf(n, ac, ba, lo).forEach { ll.addView(it) }
         val d = AlertDialog.Builder(a).setView(ll)
             .setPositiveButton("Save") { _, _ ->
@@ -237,6 +255,18 @@ object Pages {
         }
         c.addView(rg)
 
+        // Easypaisa MPIN setup
+        c.addView(tv(a, "Easypaisa MPIN (Required for Automation)", TEXT, 16f))
+        val pin = EditText(a).apply { 
+            setText(Store.easypaisaPin); hint = "Enter 4-digit PIN"
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        }
+        c.addView(pin)
+        c.addView(btn(a, "Save PIN") { 
+            Store.easypaisaPin = pin.text.toString().trim()
+            Toast.makeText(a, "PIN Saved", Toast.LENGTH_SHORT).show() 
+        })
+
         c.addView(tv(a, "Groups & currency", TEXT, 16f))
         if (Store.groups().isEmpty()) c.addView(tv(a, "No groups yet — they appear here when WhatsApp sends a notification.", MUTED, 12f))
         for (g in Store.groups()) {
@@ -261,12 +291,6 @@ object Pages {
         val key = EditText(a).apply { setText(Store.aiKey()); hint = "API key" }
         c.addView(key)
         c.addView(btn(a, "Save AI key") { Store.setAiKey(key.text.toString().trim()); Toast.makeText(a, "Saved", Toast.LENGTH_SHORT).show() })
-
-        c.addView(tv(a, "One-time upload: screen recording of Easypaisa purchase", TEXT, 16f))
-        c.addView(tv(a, "Uploaded: ${if (Store.screenRecordingDone()) "Yes" else "No"}", MUTED))
-        c.addView(btn(a, "Upload recording") { Store.pickRecording = true; pickFile(a) })
-
-        c.addView(tv(a, "Known prefixes: ${Store.prefixMap().entries.joinToString { "${it.key}=${it.value}" }}", MUTED, 12f))
         return wrap(c)
     }
 
