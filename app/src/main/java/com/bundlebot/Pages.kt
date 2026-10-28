@@ -267,7 +267,7 @@ object Pages {
 
         c.addView(tv(a, "Easypaisa MPIN (Required for Automation)", TEXT, 16f))
         val pin = EditText(a).apply { 
-            setText(Store.easypaisaPin); hint = "Enter 5-digit PIN" // FIXED: 5 digits
+            setText(Store.easypaisaPin); hint = "Enter 5-digit PIN"
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
         }
         c.addView(pin)
@@ -275,6 +275,16 @@ object Pages {
             Store.easypaisaPin = pin.text.toString().trim()
             Toast.makeText(a, "PIN Saved", Toast.LENGTH_SHORT).show() 
         })
+
+        // --- NEW AI TRAINING SECTION ---
+        c.addView(tv(a, "Train AI via Screen Recording", TEXT, 16f))
+        c.addView(tv(a, "Upload a one-time brief recording of you buying a package in Easypaisa so the app can learn the steps.", MUTED, 12f))
+        c.addView(tv(a, "Status: ${if (Store.screenRecordingDone()) "Uploaded ✅" else "Not Uploaded ❌"}", MUTED, 12f))
+        c.addView(btn(a, "Upload Recording", BLUE) { 
+            Store.pickRecording = true
+            pickFile(a) 
+        })
+        // -------------------------------
 
         c.addView(tv(a, "Groups & currency", TEXT, 16f))
         if (Store.groups().isEmpty()) c.addView(tv(a, "No groups yet — they appear here when WhatsApp sends a notification.", MUTED, 12f))
