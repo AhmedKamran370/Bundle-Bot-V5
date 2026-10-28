@@ -23,7 +23,7 @@ object PackageParser {
             var name = ""
 
             if (l.contains("|")) {
-                // TABLE FORMAT (From our custom DOCX parser)
+                // TABLE FORMAT
                 val cells = l.split("|").map { it.trim() }
                 
                 for (i in cells.indices) {
@@ -34,16 +34,24 @@ object PackageParser {
                     if (gbMatch != null && gb == 0) {
                         gb = gbMatch.groupValues[1].toIntOrNull() ?: 0
                         if (cell.replace(gbMatch.value, "").trim().isEmpty() && i > 0) {
-                            name = cells[i-1] // Name is in the previous cell
+                            name = cells[i-1]
                         } else {
                             name = cell.substringBefore(gbMatch.value).trim()
                         }
                     }
                     
-                    // Extract Price (Extract ALL digits from the price cell to fix split numbers)
-                    if (price == 0 && (cell.contains("SAR", true) || cell.contains("Rs", true) || cell.contains("PKR", true))) {
-                        val numOnly = cell.replace(Regex("[^0-9]"), "") // Removes spaces, SAR, etc.
-                        if (numOnly.isNotEmpty()) price = numOnly.toIntOrNull() ?: 0
+                    // Extract Price & Convert to PKR Base
+                    if (price == 0 && (cell.contains("SAR", true) || cell.contains("Rs", true) || cell.contains("PKR", true) || cell.contains("USD", true) || cell.contains("AED", true))) {
+                        val numOnly = cell.replace(Regex("[^0-9]"), "") 
+                        if (numOnly.isNotEmpty()) {
+                            var rawPrice = numOnly.toIntOrNull() ?: 0
+                            // Convert to PKR base
+                            if (cell.contains("SAR", true)) rawPrice = (rawPrice * 74.0).toInt()
+                            else if (cell.contains("USD", true)) rawPrice = (rawPrice * 280.0).toInt()
+                            else if (cell.contains("AED", true)) rawPrice = (rawPrice * 76.0).toInt()
+                            
+                            price = rawPrice
+                        }
                     }
                 }
             } else {
@@ -55,9 +63,13 @@ object PackageParser {
                     name = l.substringBefore(gbMatch.value)
                 }
                 
-                val priceMatch = Regex("""(?:SAR|Rs\.?|PKR)\s*(\d+)""", RegexOption.IGNORE_CASE).find(l)
+                val priceMatch = Regex("""(?:SAR|Rs\.?|PKR|USD|AED)\s*(\d+)""", RegexOption.IGNORE_CASE).find(l)
                 if (priceMatch != null) {
-                    price = priceMatch.groupValues[1].toIntOrNull() ?: 0
+                    var rawPrice = priceMatch.groupValues[1].toIntOrNull() ?: 0
+                    if (priceMatch.value.contains("SAR", true)) rawPrice = (rawPrice * 74.0).toInt()
+                    else if (priceMatch.value.contains("USD", true)) rawPrice = (rawPrice * 280.0).toInt()
+                    else if (priceMatch.value.contains("AED", true)) rawPrice = (rawPrice * 76.0).toInt()
+                    price = rawPrice
                 } else {
                     val allNums = Regex("""\d+""").findAll(l).map { it.value.toInt() }.toList()
                     if (allNums.isNotEmpty()) {
@@ -67,7 +79,7 @@ object PackageParser {
                 }
             }
 
-            name = name.replace(Regex("^\\d+\\.?\\s*"), "") // Remove "1. "
+            name = name.replace(Regex("^\\d+\\.?\\s*"), "") 
                 .replace("*", "")
                 .trim()
             
@@ -88,14 +100,13 @@ object PackageParser {
                     if (entry.name == "word/document.xml") {
                         val xmlText = zip.bufferedReader().readText()
                         
-                        // XML to Text conversion that keeps table cells together
                         val cleanText = xmlText
-                            .replace("</w:tc>", "|") // Mark end of a cell
-                            .replace("</w:tr>", "\n") // Mark end of a row
-                            .replace(Regex("<[^>]*>"), " ") // Remove XML tags
+                            .replace("</w:tc>", "|") 
+                            .replace("</w:tr>", "\n") 
+                            .replace(Regex("<[^>]*>"), " ") 
                             .replace("&amp;", "&")
-                            .replace(Regex("[ \t]+"), " ") // Collapse spaces but NOT newlines
-                            .replace(Regex("\n+"), "\n") // Collapse multiple newlines
+                            .replace(Regex("[ \t]+"), " ") 
+                            .replace(Regex("\n+"), "\n") 
 
                         return fromText(cleanText, forcedNet)
                     }
