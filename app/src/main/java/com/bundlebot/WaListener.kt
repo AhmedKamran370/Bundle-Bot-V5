@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import java.util.*
 
 class WaListener : NotificationListenerService() {
     private var lastMessageHash = 0
@@ -42,7 +43,14 @@ class WaListener : NotificationListenerService() {
 
         if (!g.watched) return 
 
-        // 30-second cooldown
+        // 1. Voice Message Detection
+        if (text.contains("Audio (") || text.contains("Voice message") || text.contains("🎤")) {
+            Alarm.start(this)
+            Store.addMessage("⚠ VOICE MESSAGE RECEIVED in $group. Manual action required.")
+            return // Do not reply
+        }
+
+        // 2. Spam Prevention
         val currentHash = text.hashCode()
         if (currentHash == lastMessageHash && System.currentTimeMillis() - lastMessageTime < 30000) {
             return
@@ -55,41 +63,52 @@ class WaListener : NotificationListenerService() {
         Store.addMessage("IN: $group — $text")
         
         if (parsed.number == null) {
-            reply(n, "Please send a valid mobile number (e.g., 03123456789).")
-            Store.addMessage("OUT: [asks for valid number]")
+            reply(n, "Please send a valid mobile number.")
             return
         }
         
         val match = Store.matchPackage(parsed.network, parsed.gb, parsed.days, parsed.name, parsed.price)
         
         if (match.pkg == null) {
-            reply(n, "Sorry, we couldn't find that exact bundle. Please tell us the GB amount.")
-            Store.addMessage("OUT: [asks which package]")
+            // Check if we already told them "not found" in the last 2 minutes
+            val failKey = "${group}_${parsed.number}"
+            if (System.currentTimeMillis() - Store.getLastFail(failKey) > 120000) {
+                reply(n, "Sorry, that package is not in our list.")
+                Store.setLastFail(failKey, System.currentTimeMillis())
+            }
             return
         }
 
-        if (match.needsConfirmation) {
-            Store.addMessage("⚠ ALARM: Guessed package '${match.pkg.name}'. Please do this manually.")
-            Store.alarmActive = true
-            Alarm.start()
-        } else {
-            val success = reply(n, "Received request for ${parsed.number} • ${match.pkg.name} (${match.pkg.gb}GB). Please wait...")
-            
-            if (success) Store.addMessage("OUT: Confirmed ${match.pkg.name}")
-            else Store.addMessage("⚠ FAILED TO REPLY: WhatsApp didn't provide a reply button for this notification.")
-            
-            if (!A11y.isRunning) {
-                Store.alarmActive = true
-                Alarm.start()
-                Store.addMessage("ALARM: Screen Control is OFF. Turn on Accessibility for BundleBot.")
-            } else {
-                val task = "${parsed.network},${match.pkg.gb},${match.pkg.days},${match.pkg.name},${parsed.number}"
-                Store.pendingTask = task
-                val intent = packageManager.getLaunchIntentForPackage("pk.com.telenor.phoenix")
-                intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                startActivity(intent)
+        // Add to Pending Records
+        val pending = PendingRec(
+            UUID.randomUUID().toString(),
+            parsed.number,
+            match.pkg.name,
+            match.pkg.price,
+            java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date()),
+            System.currentTimeMillis()
+        )
+        Store.addPendingRecord(pending)
+
+        // 3. Custom Reply Logic
+        val customReplies = Store.getCustomReplies()
+        var customReplySent = false
+        
+        for ((trigger, response) in customReplies) {
+            if (text.contains(trigger, true)) {
+                reply(n, response)
+                customReplySent = true
+                break
             }
         }
+
+        // Default Reply (Copies text + "Ok" if no custom reply matched)
+        if (!customReplySent) {
+            val defaultReply = "${text}\n\nOk"
+            reply(n, defaultReply)
+        }
+        
+        Store.addMessage("OUT: Replied to ${parsed.number} (${match.pkg.name})")
     }
 
     private fun reply(n: Notification, msg: String): Boolean {
