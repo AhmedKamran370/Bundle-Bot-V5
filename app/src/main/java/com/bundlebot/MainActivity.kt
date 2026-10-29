@@ -21,7 +21,7 @@ class MainActivity : Activity() {
         Store.init(this)
         Alarm.init(this)
         
-        // START THE FOREGROUND SERVICE & ASK FOR BATTERY EXEMPTION
+        // Start Background Service to keep app alive
         startService(Intent(this, BgService::class.java))
         askForBatteryPermission()
 
@@ -37,10 +37,7 @@ class MainActivity : Activity() {
                     intent.action = Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
                     intent.data = Uri.parse("package:$packageName")
                     startActivity(intent)
-                } catch (e: Exception) {
-                    // Fallback if the direct intent fails
-                    startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                }
+                } catch (e: Exception) {}
             }
         }
     }
@@ -59,7 +56,7 @@ class MainActivity : Activity() {
             scaleX = 0.4f; scaleY = 0.4f
         }
         val name = TextView(this).apply {
-            text = "BundleBot"
+            text = "Nabeel"
             setTextColor(Color.WHITE)
             textSize = 32f
             alpha = 0f
@@ -82,7 +79,7 @@ class MainActivity : Activity() {
             setBackgroundColor(Color.parseColor("#1E293B"))
         }
         header.addView(TextView(this).apply {
-            text = "BundleBot"; setTextColor(Color.WHITE); textSize = 22f
+            text = "Nabeel"; setTextColor(Color.WHITE); textSize = 22f
         })
         status = TextView(this).apply { setTextColor(Color.parseColor("#94A3B8")); textSize = 12f }
         header.addView(status)
@@ -107,8 +104,7 @@ class MainActivity : Activity() {
 
     private fun refresh() {
         val notif = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")?.contains(packageName) == true
-        val a11y = (Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: "").contains(packageName)
-        status.text = "WhatsApp ${if (notif) "ON" else "OFF"}  •  Screen ${if (a11y) "ON" else "OFF"}"
+        status.text = "WhatsApp Access: ${if (notif) "ON" else "OFF"}"
     }
     override fun onResume() { super.onResume(); if (::content.isInitialized) refresh() }
 
@@ -134,13 +130,6 @@ class MainActivity : Activity() {
         if (requestCode != 42 || resultCode != RESULT_OK || data?.data == null) return
         val uri = data.data!!
         
-        if (Store.pickRecording) {
-            Store.setScreenRecordingDone()
-            Toast.makeText(this, "Recording saved", Toast.LENGTH_SHORT).show()
-            Store.pickRecording = false
-            return
-        }
-
         try {
             val inputStream = contentResolver.openInputStream(uri) ?: return
             val bufferedStream = BufferedInputStream(inputStream)
