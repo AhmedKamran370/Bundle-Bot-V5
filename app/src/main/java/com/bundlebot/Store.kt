@@ -1,247 +1,348 @@
 package com.bundlebot
 
-import android.content.Context
-import android.content.SharedPreferences
-import org.json.JSONArray
-import org.json.JSONObject
-import java.util.*
-import kotlin.math.abs
+import android.app.Activity
+import android.app.AlertDialog
+import android.content.Intent
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
+import android.provider.Settings
+import android.text.InputType
+import android.view.View
+import android.widget.*
 
-data class Package(val name:String,val network:String,val section:String,val gb:Int,val days:Int,val price:Int)
-data class Bank(val name:String,val account:String,val balance:Int,val lowAt:Int)
-data class Group(val name:String,val watched:Boolean,val currency:String)
-data class Rec(val id:String, val number:String,val packageName:String,val bank:String,val price:Int,val time:String,val epoch:Long)
-data class PendingRec(val id:String, val number:String,val packageName:String,val price:Int,val time:String,val epoch:Long)
-data class Proof(val number:String,val packageName:String,val price:Int,val time:String,val path:String)
-data class MatchResult(val pkg: Package?, val needsConfirmation: Boolean, val suggestion: String)
+object Pages {
+    private const val BG = "#0F172A"; private const val CARD = "#1E293B"
+    private const val TEXT = "#F1F5F9"; private const val MUTED = "#94A3B8"
+    private const val ACCENT = "#22C55E"; private const val WARN = "#EF4444"
+    private const val BLUE = "#3B82F6"
 
-object Store {
-    private lateinit var sp: SharedPreferences
-    fun init(c: Context) { if (!::sp.isInitialized) sp = c.applicationContext.getSharedPreferences("bb", 0) }
-
-    var alarmActive: Boolean
-        get() = sp.getBoolean("alarm", false)
-        set(v) { sp.edit().putBoolean("alarm", v).apply() }
+    private fun tv(a: Activity, s: String, c: String = TEXT, sz: Float = 14f) = TextView(a).apply {
+        text = s; setTextColor(Color.parseColor(c)); textSize = sz; setPadding(0, 10, 0, 10)
+    }
+    private fun col(a: Activity) = LinearLayout(a).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(30, 30, 30, 30); setBackgroundColor(Color.parseColor(BG))
+    }
+    private fun card(a: Activity, v: View) = LinearLayout(a).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(25, 20, 25, 20); setBackgroundColor(Color.parseColor(CARD))
+        addView(v); setPadding(25, 20, 25, 20)
+        layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 15 }
+    }
+    private fun wrap(v: View) = ScrollView(v.context).apply { addView(v) }
+    private fun btn(a: Activity, t: String, bg: String = ACCENT, f: () -> Unit) = Button(a).apply {
+        text = t; setOnClickListener { f() }; setTextColor(Color.WHITE)
+        setBackgroundColor(Color.parseColor(bg))
+    }
     
-    var pendingUploadNetwork: String = "Jazz"
-    var recordFilter: String
-        get() = sp.getString("rf", "Today")!!
-        set(v) { sp.edit().putString("rf", v).apply() }
-
-    // Prevent spam replies to the same failed package
-    fun getLastFail(key: String): Long = sp.getLong("fail_$key", 0)
-    fun setLastFail(key: String, time: Long) { sp.edit().putLong("fail_$key", time).apply() }
-
-    // Custom Replies
-    fun getCustomReplies(): Map<String, String> {
-        val s = sp.getString("custom_replies", "{}")!!
-        val map = mutableMapOf<String, String>()
-        try {
-            val json = JSONObject(s)
-            for (key in json.keys()) map[key] = json.getString(key)
-        } catch (_: Exception) {}
-        return map
-    }
-    fun addCustomReply(trigger: String, reply: String) {
-        val map = getCustomReplies().toMutableMap()
-        map[trigger.lowercase()] = reply
-        val json = JSONObject()
-        for ((k, v) in map) json.put(k, v)
-        sp.edit().putString("custom_replies", json.toString()).apply()
-    }
-    fun clearCustomReplies() { sp.edit().putString("custom_replies", "{}").apply() }
-
-    fun clearPackages() { sp.edit().putString("pk", "[]").apply() }
-
-    fun packages(): List<Package> = (JSONArray(sp.getString("pk", "[]"))).let { arr ->
-        (0 until arr.length()).map { i ->
-            val o = arr.getJSONObject(i)
-            Package(o.getString("n"), o.getString("net"), o.getString("sec"),
-                o.getInt("gb"), o.getInt("d"), o.getInt("p"))
+    private fun simCard(a: Activity, title: String, color: String, content: View) = LinearLayout(a).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(20, 20, 20, 20)
+        val drawable = GradientDrawable().apply {
+            setColor(Color.parseColor(CARD))
+            setStroke(3, Color.parseColor(color))
+            cornerRadius = 25f
         }
+        background = drawable
+        layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 20 }
+        addView(tv(a, title, color, 20f))
+        addView(content)
     }
-    
-    fun upsertPackage(p: Package, old: Package?) {
-        val list = packages().toMutableList()
-        if (old != null) list.remove(old)
-        list.add(p)
-        save(list)
+
+    fun home(a: Activity): View {
+        val c = col(a)
+        c.addView(tv(a, "Welcome to Nabeel", TEXT, 24f))
+        c.addView(tv(a, "Today: ${Store.todayCount()} sales • ${Store.convert(Store.todayTotal())} ${Store.currency()}", MUTED))
+        
+        if (Store.alarmActive) {
+            val al = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
+            al.addView(tv(a, "⚠ ERROR — manual action needed", WARN, 18f))
+            al.addView(btn(a, "Stop alarm", WARN) {
+                Alarm.stop(a); Store.alarmActive = false; (a as MainActivity).rebuild()
+            })
+            c.addView(card(a, al))
+        }
+        
+        val perms = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
+        perms.addView(tv(a, "Permissions", ACCENT, 16f))
+        perms.addView(btn(a, "WhatsApp message access") { a.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) })
+        c.addView(card(a, perms))
+        return wrap(c)
     }
-    fun deletePackage(p: Package) { save(packages().filter { it != p }) }
-    
-    private fun save(list: List<Package>) {
-        val arr = JSONArray()
-        for (p in list) arr.put(JSONObject().apply {
-            put("n", p.name); put("net", p.network); put("sec", p.section)
-            put("gb", p.gb); put("d", p.days); put("p", p.price)
+
+    fun messages(a: Activity): View {
+        val c = col(a)
+        c.addView(tv(a, "Live Messages", TEXT, 24f))
+        val msgs = Store.messages()
+        if (msgs.isEmpty()) c.addView(tv(a, "Nothing yet.", MUTED))
+        for (m in msgs.takeLast(50)) {
+            val isIn = m.startsWith("IN:")
+            val isErr = m.contains("⚠")
+            val box = TextView(a).apply {
+                text = m.substringAfter(":", m).trim(); setTextColor(Color.WHITE)
+                setPadding(20, 15, 20, 15); textSize = 14f
+                setBackgroundColor(Color.parseColor(if (isIn) "#334155" else if (isErr) "#7F1D1D" else "#166534"))
+            }
+            c.addView(box)
+            c.addView(View(a).apply { layoutParams = LinearLayout.LayoutParams(-1, 6) })
+        }
+        return wrap(c)
+    }
+
+    fun packages(a: Activity): View {
+        val c = col(a)
+        c.addView(tv(a, "Packages", TEXT, 24f))
+        
+        c.addView(btn(a, "Delete All Packages", WARN) {
+            Store.clearPackages()
+            (a as MainActivity).rebuild()
         })
-        sp.edit().putString("pk", arr.toString()).apply()
-    }
 
-    fun matchPackage(network: String, gb: Int, days: Int, name: String, price: Int): MatchResult {
-        val list = if (network == "unknown" || network.isEmpty()) packages() 
-                   else packages().filter { it.network.equals(network, true) }
+        val allPkgs = Store.packages()
+        val networks = listOf("Jazz", "Zong", "Telenor", "Ufone", "Other")
+        val colors = mapOf("Jazz" to "#EF4444", "Zong" to "#22C55E", "Telenor" to "#3B82F6", "Ufone" to "#F59E0B", "Other" to "#94A3B8")
 
-        if (gb > 0) {
-            val gbMatches = list.filter { it.gb == gb && (days == 0 || it.days == days) }
-            if (gbMatches.isNotEmpty()) {
-                if (price > 0) {
-                    val closest = gbMatches.minByOrNull { abs(it.price - price) }
-                    if (closest != null && abs(closest.price - price) <= 150) return MatchResult(closest, false, "")
+        for (net in networks) {
+            val netPkgs = allPkgs.filter { it.network.equals(net, true) }
+            
+            val netContent = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
+            
+            for (p in netPkgs) {
+                val row = LinearLayout(a).apply {
+                    orientation = LinearLayout.HORIZONTAL; setPadding(10, 10, 10, 10)
+                    layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 8 }
                 }
-                return MatchResult(gbMatches.first(), false, "")
+                val info = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
+                info.layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+                
+                info.addView(tv(a, p.name, TEXT, 16f))
+                val displayPrice = Store.convert(p.price)
+                info.addView(tv(a, "${p.section} • ${p.gb} GB • ${p.days} Days • $displayPrice ${Store.currency()}", MUTED, 12f))
+                
+                row.addView(info)
+                row.addView(btn(a, "Edit") { editPackage(a, p) })
+                netContent.addView(row)
             }
-            val looseGbMatch = list.firstOrNull { it.gb == gb }
-            if (looseGbMatch != null) return MatchResult(looseGbMatch, false, "")
-        }
 
-        if (price > 0) {
-            val priceMatches = list.filter { abs(it.price - price) <= 150 }
-            if (priceMatches.isNotEmpty()) return MatchResult(priceMatches.first(), false, "")
-        }
+            netContent.addView(btn(a, "➕ Add $net Packages", BLUE) {
+                Store.pendingUploadNetwork = net
+                pickFile(a)
+            })
 
-        if (name.isNotBlank()) {
-            val keywordMatches = list.filter {
-                it.name.contains(name, true) || it.section.contains(name, true) ||
-                (name.contains("imo", true) && (it.name.contains("social", true) || it.name.contains("imo", true)))
-            }
-            if (keywordMatches.isNotEmpty()) {
-                val highestGbPkg = keywordMatches.maxByOrNull { it.gb } ?: keywordMatches.first()
-                return MatchResult(highestGbPkg, true, "") 
-            }
+            c.addView(simCard(a, "$net SIM", colors[net] ?: "#94A3B8", netContent))
         }
-        return MatchResult(null, false, "")
+        return wrap(c)
     }
 
-    // PENDING RECORDS
-    fun pendingRecords(): List<PendingRec> = (JSONArray(sp.getString("pend", "[]"))).let { arr ->
-        (0 until arr.length()).map { i ->
-            val o = arr.getJSONObject(i)
-            PendingRec(o.getString("id"), o.getString("num"), o.getString("pk"), o.getInt("pr"), o.getString("t"), o.getLong("e"))
-        }
+    private fun editPackage(a: Activity, p: Package?) {
+        val ll = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; setPadding(30, 30, 30, 30) }
+        val name = EditText(a).apply { hint = "Name"; setText(p?.name ?: "") }
+        val net = EditText(a).apply { hint = "Network (Zong/Jazz/Telenor/Ufone)"; setText(p?.network ?: "") }
+        val sec = EditText(a).apply { hint = "Section (Weekly/Monthly/etc)"; setText(p?.section ?: "") }
+        val gb = EditText(a).apply { hint = "GB"; inputType = InputType.TYPE_CLASS_NUMBER; setText(p?.gb?.toString() ?: "") }
+        val days = EditText(a).apply { hint = "Days"; inputType = InputType.TYPE_CLASS_NUMBER; setText(p?.days?.toString() ?: "") }
+        val price = EditText(a).apply { hint = "Price (in PKR)"; inputType = InputType.TYPE_CLASS_NUMBER; setText(p?.price?.toString() ?: "") }
+        listOf(name, net, sec, gb, days, price).forEach { ll.addView(it) }
+        val d = AlertDialog.Builder(a).setView(ll)
+            .setPositiveButton("Save") { _, _ ->
+                Store.upsertPackage(
+                    Package(name.text.toString(), net.text.toString(), sec.text.toString(),
+                        gb.text.toString().toIntOrNull() ?: 0,
+                        days.text.toString().toIntOrNull() ?: 0,
+                        price.text.toString().toIntOrNull() ?: 0), p)
+                (a as MainActivity).rebuild()
+            }
+            .setNegativeButton("Cancel", null)
+        if (p != null) d.setNeutralButton("Delete") { _, _ -> Store.deletePackage(p); (a as MainActivity).rebuild() }
+        d.show()
     }
-    fun addPendingRecord(r: PendingRec) {
-        val list = pendingRecords().toMutableList()
-        list.add(r)
-        savePending(list)
-    }
-    fun resolvePendingRecord(id: String, isDone: Boolean) {
-        val list = pendingRecords()
-        val item = list.find { it.id == id } ?: return
-        if (isDone) {
-            addRecord(Rec(item.id, item.number, item.packageName, "WhatsApp", item.price, item.time, item.epoch))
-        }
-        savePending(list.filter { it.id != id })
-    }
-    private fun savePending(list: List<PendingRec>) {
-        val arr = JSONArray()
-        for (p in list) arr.put(JSONObject().apply {
-            put("id", p.id); put("num", p.number); put("pk", p.packageName)
-            put("pr", p.price); put("t", p.time); put("e", p.epoch)
+
+    fun records(a: Activity): View {
+        val c = col(a)
+        val hdr = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL }
+        hdr.addView(tv(a, "Records", TEXT, 24f), LinearLayout.LayoutParams(0, -2, 1f))
+        hdr.addView(btn(a, Store.recordFilter) {
+            val opts = arrayOf("Today", "This week", "This month", "This year")
+            AlertDialog.Builder(a).setItems(opts) { _, i ->
+                Store.recordFilter = opts[i]; (a as MainActivity).rebuild()
+            }.show()
         })
-        sp.edit().putString("pend", arr.toString()).apply()
-    }
-
-    // CONFIRMED RECORDS
-    fun records(): List<Rec> = (JSONArray(sp.getString("rc", "[]"))).let { arr ->
-        (0 until arr.length()).map { i ->
-            val o = arr.getJSONObject(i)
-            Rec(o.getString("id"), o.getString("num"), o.getString("pk"), o.getString("bk"), o.getInt("pr"), o.getString("t"), o.getLong("e"))
-        }
-    }
-    fun addRecord(r: Rec) {
-        val list = records().toMutableList()
-        list.add(r)
-        val arr = JSONArray()
-        for (x in list) arr.put(JSONObject().apply {
-            put("id", x.id); put("num", x.number); put("pk", x.packageName); put("bk", x.bank)
-            put("pr", x.price); put("t", x.time); put("e", x.epoch)
+        c.addView(hdr)
+        c.addView(btn(a, "Currency: ${Store.currency()}") {
+            val opts = arrayOf("PKR", "USD", "AED", "SAR", "INR", "GBP")
+            AlertDialog.Builder(a).setItems(opts) { _, i -> Store.setCurrency(opts[i]); (a as MainActivity).rebuild() }.show()
         })
-        sp.edit().putString("rc", arr.toString()).apply()
-    }
-    fun filteredRecords(filter: String): List<Rec> {
-        val all = records()
-        val cal = Calendar.getInstance()
-        return when (filter) {
-            "Today" -> all.filter {
-                val c = Calendar.getInstance().apply { timeInMillis = it.epoch }
-                c.get(Calendar.DAY_OF_YEAR) == cal.get(Calendar.DAY_OF_YEAR) && c.get(Calendar.YEAR) == cal.get(Calendar.YEAR)
-            }
-            "This week" -> all.filter {
-                val c = Calendar.getInstance().apply { timeInMillis = it.epoch }
-                c.get(Calendar.WEEK_OF_YEAR) == cal.get(Calendar.WEEK_OF_YEAR) && c.get(Calendar.YEAR) == cal.get(Calendar.YEAR)
-            }
-            "This month" -> all.filter {
-                val c = Calendar.getInstance().apply { timeInMillis = it.epoch }
-                c.get(Calendar.MONTH) == cal.get(Calendar.MONTH) && c.get(Calendar.YEAR) == cal.get(Calendar.YEAR)
-            }
-            "This year" -> all.filter {
-                Calendar.getInstance().apply { timeInMillis = it.epoch }.get(Calendar.YEAR) == cal.get(Calendar.YEAR)
-            }
-            else -> all
-        }
-    }
-    fun todayCount() = filteredRecords("Today").size
-    fun todayTotal() = filteredRecords("Today").sumOf { it.price }
 
-    fun proofs(): List<Proof> = (JSONArray(sp.getString("pf", "[]"))).let { arr ->
-        (0 until arr.length()).map { i ->
-            val o = arr.getJSONObject(i)
-            Proof(o.getString("num"), o.getString("pk"), o.getInt("pr"), o.getString("t"), o.getString("p"))
+        // PENDING RECORDS SECTION
+        val pend = Store.pendingRecords()
+        if (pend.isNotEmpty()) {
+            c.addView(tv(a, "Pending Requests", BLUE, 18f))
+            for (p in pend.reversed()) {
+                val box = LinearLayout(a).apply {
+                    orientation = LinearLayout.VERTICAL; setPadding(20, 12, 20, 12)
+                    setBackgroundColor(Color.parseColor("#1E3A8A")) // Dark Blue
+                    layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 6 }
+                }
+                box.addView(tv(a, "${p.number} — ${p.packageName} • ${p.price} PKR", TEXT))
+                box.addView(tv(a, "${p.time}", MUTED, 12f))
+                
+                val btnRow = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL }
+                btnRow.addView(btn(a, "✅ Done", ACCENT) { 
+                    Store.resolvePendingRecord(p.id, true); (a as MainActivity).rebuild() 
+                }, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = 10 })
+                btnRow.addView(btn(a, "❌ Cancel", WARN) { 
+                    Store.resolvePendingRecord(p.id, false); (a as MainActivity).rebuild() 
+                }, LinearLayout.LayoutParams(0, -2, 1f))
+                box.addView(btnRow)
+                c.addView(box)
+            }
         }
+
+        c.addView(tv(a, "Confirmed History", TEXT, 18f))
+        val recs = Store.filteredRecords(Store.recordFilter)
+        val total = recs.sumOf { Store.convert(it.price) }
+        c.addView(tv(a, "Total: $total ${Store.currency()}", ACCENT, 20f))
+        c.addView(tv(a, "${recs.size} transactions", MUTED))
+        c.addView(btn(a, "Export CSV") { Export.csv(a, recs, Store.currency()) })
+        for (r in recs.reversed()) {
+            val box = LinearLayout(a).apply {
+                orientation = LinearLayout.VERTICAL; setPadding(20, 12, 20, 12)
+                setBackgroundColor(Color.parseColor(CARD))
+                layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 6 }
+            }
+            box.addView(tv(a, "${r.number} — ${r.packageName}", TEXT))
+            box.addView(tv(a, "${r.time} • ${Store.convert(r.price)} ${Store.currency()}", MUTED, 12f))
+            c.addView(box)
+        }
+        return wrap(c)
     }
-    fun addProof(p: Proof) {
-        val list = proofs().toMutableList()
-        list.add(p)
-        val arr = JSONArray()
-        for (x in list) arr.put(JSONObject().apply {
-            put("num", x.number); put("pk", x.packageName); put("pr", x.price)
-            put("t", x.time); put("p", x.path)
+
+    fun proofs(a: Activity): View {
+        val c = col(a)
+        c.addView(tv(a, "Proofs", TEXT, 24f))
+        val list = Store.proofs()
+        if (list.isEmpty()) c.addView(tv(a, "No proofs yet.", MUTED))
+        for (p in list.reversed()) {
+            val box = LinearLayout(a).apply {
+                orientation = LinearLayout.VERTICAL; setPadding(20, 12, 20, 12)
+                setBackgroundColor(Color.parseColor(CARD))
+                layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 6 }
+            }
+            box.addView(tv(a, "${p.time} • ${p.number} • ${p.packageName}", TEXT))
+            box.addView(tv(a, "Price ${Store.convert(p.price)} ${Store.currency()} (cropped)", MUTED, 12f))
+            c.addView(box)
+        }
+        return wrap(c)
+    }
+
+    fun banks(a: Activity): View {
+        val c = col(a)
+        c.addView(tv(a, "Banks", TEXT, 24f))
+        c.addView(tv(a, "This is for your reference. Easypaisa automation is removed.", MUTED, 12f))
+        return wrap(c)
+    }
+
+    fun setup(a: Activity): View {
+        val c = col(a)
+        c.addView(tv(a, "Setup", TEXT, 24f))
+
+        c.addView(tv(a, "1. Which WhatsApp to read?", TEXT, 16f))
+        val rg = RadioGroup(a)
+        listOf("both" to "Both", "wa" to "WhatsApp only", "biz" to "WhatsApp Business only").forEach { (k, l) ->
+            rg.addView(RadioButton(a).apply {
+                text = l; isChecked = Store.source() == k
+                setOnClickListener { Store.setSource(k) }
+            })
+        }
+        c.addView(rg)
+
+        c.addView(tv(a, "2. Groups", TEXT, 16f))
+        val groupInput = EditText(a).apply { hint = "Group Name"; hint = "e.g. Kakarot" }
+        val addRow = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL }
+        addRow.addView(groupInput, LinearLayout.LayoutParams(0, -2, 1f))
+        addRow.addView(btn(a, "Add") {
+            val name = groupInput.text.toString().trim()
+            if (name.isNotEmpty()) {
+                Store.addGroup(name)
+                groupInput.setText("")
+                (a as MainActivity).rebuild()
+            }
         })
-        sp.edit().putString("pf", arr.toString()).apply()
-    }
+        c.addView(addRow)
 
-    fun messages(): List<String> = sp.getString("ms", "")!!.lines().filter { it.isNotBlank() }
-    fun addMessage(m: String) {
-        val list = messages().toMutableList()
-        list.add(m)
-        sp.edit().putString("ms", list.takeLast(80).joinToString("\n")).apply()
-    }
-    fun rawNotifs(): List<String> = sp.getString("raw", "")!!.lines().filter { it.isNotBlank() }
-    fun addRaw(r: String) {
-        val list = rawNotifs().toMutableList()
-        list.add(r)
-        sp.edit().putString("raw", list.takeLast(60).joinToString("\n")).apply()
-    }
-
-    fun source(): String = sp.getString("src", "both")!!
-    fun setSource(v: String) { sp.edit().putString("src", v).apply() }
-    fun aiKey(): String = sp.getString("ai", "")!!
-    fun setAiKey(v: String) { sp.edit().putString("ai", v).apply() }
-    fun currency(): String = sp.getString("cur", "PKR")!!
-    fun setCurrency(v: String) { sp.edit().putString("cur", v).apply() }
-    fun convert(pkr: Int): Int {
-        return when (currency()) {
-            "USD" -> (pkr / 280.0).toInt()
-            "AED" -> (pkr / 76.0).toInt()
-            "SAR" -> (pkr / 74.0).toInt()
-            "INR" -> (pkr / 3.3).toInt()
-            "GBP" -> (pkr / 355.0).toInt()
-            else -> pkr
+        if (Store.groups().isEmpty()) c.addView(tv(a, "No groups added yet.", MUTED, 12f))
+        for (g in Store.groups()) {
+            val row = LinearLayout(a).apply {
+                orientation = LinearLayout.HORIZONTAL; setPadding(15, 10, 15, 10)
+                setBackgroundColor(Color.parseColor(CARD))
+                layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 5 }
+            }
+            row.addView(tv(a, g.name), LinearLayout.LayoutParams(0, -2, 1f))
+            row.addView(btn(a, g.currency) {
+                val opts = arrayOf("PKR", "USD", "AED", "SAR", "INR", "GBP")
+                AlertDialog.Builder(a).setItems(opts) { _, i -> Store.setGroupCurrency(g.name, opts[i]); (a as MainActivity).rebuild() }.show()
+            })
+            row.addView(CheckBox(a).apply {
+                isChecked = g.watched
+                setOnCheckedChangeListener { _, v -> Store.setGroupWatched(g.name, v) }
+            })
+            c.addView(row)
         }
-    }
-    
-    fun prefixMap(): Map<String, String> = mapOf(
-        "030" to "Jazz", "031" to "Zong", "032" to "Jazz", "033" to "Ufone",
-        "034" to "Telenor", "037" to "Jazz", "0370" to "Zong", "038" to "Ufone", "039" to "Zong"
-    )
-    fun networkFor(number: String): String {
-        val digits = number.filter { it.isDigit() }
-        val p4 = digits.take(4)
-        val p3 = digits.take(3)
-        return prefixMap()[p4] ?: prefixMap()[p3] ?: "unknown"
+
+        c.addView(tv(a, "3. Custom Replies", TEXT, 16f))
+        c.addView(tv(a, "If client's message contains the keyword, it replies with your text. Otherwise, it copies their text + 'Ok'.", MUTED, 12f))
+        
+        val trigger = EditText(a).apply { hint = "Keyword (e.g. price)" }
+        val response = EditText(a).apply { hint = "Reply (e.g. Rates are in list)" }
+        c.addView(trigger)
+        c.addView(response)
+        c.addView(btn(a, "Add Custom Reply", BLUE) {
+            if (trigger.text.isNotBlank() && response.text.isNotBlank()) {
+                Store.addCustomReply(trigger.text.toString(), response.text.toString())
+                trigger.setText(""); response.setText("")
+                Toast.makeText(a, "Reply Added", Toast.LENGTH_SHORT).show()
+            }
+        })
+
+        val replies = Store.getCustomReplies()
+        if (replies.isNotEmpty()) {
+            c.addView(tv(a, "Your Custom Replies:", TEXT, 14f))
+            for ((k, v) in replies) {
+                c.addView(tv(a, "• '$k' → '$v'", MUTED, 12f))
+            }
+            c.addView(btn(a, "Clear All Custom Replies", WARN) {
+                Store.clearCustomReplies()
+                (a as MainActivity).rebuild()
+            })
+        }
+
+        return wrap(c)
     }
 
-    fun screenRecordingDone(): Boolean = sp.getBoolean("rec", false)
-    fun setScreenRecordingDone() { sp.edit().putBoolean("rec", true).apply() }
+    fun help(a: Activity): View {
+        val c = col(a)
+        c.addView(tv(a, "AI Help", TEXT, 24f))
+        c.addView(tv(a, "Ask anything about Nabeel", MUTED))
+        val q = EditText(a).apply { hint = "Question" }
+        val ans = tv(a, "", TEXT)
+        c.addView(q)
+        c.addView(btn(a, "Ask AI") {
+            val question = q.text.toString().trim()
+            if (question.isEmpty()) return@btn
+            ans.text = "Thinking..."
+            Thread {
+                val reply = Ai.ask(question)
+                a.runOnUiThread { ans.text = reply }
+            }.start()
+        })
+        c.addView(ans)
+        return wrap(c)
+    }
+
+    private fun pickFile(a: Activity) {
+        val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE); type = "*/*"
+        }
+        try { a.startActivityForResult(i, 42) } catch (_: Exception) { Toast.makeText(a, "No file picker", Toast.LENGTH_SHORT).show() }
+    }
 }
