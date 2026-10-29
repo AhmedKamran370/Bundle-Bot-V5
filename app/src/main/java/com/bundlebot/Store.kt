@@ -10,7 +10,8 @@ import kotlin.math.abs
 data class Package(val name:String,val network:String,val section:String,val gb:Int,val days:Int,val price:Int)
 data class Bank(val name:String,val account:String,val balance:Int,val lowAt:Int)
 data class Group(val name:String,val watched:Boolean,val currency:String)
-data class Rec(val number:String,val packageName:String,val bank:String,val price:Int,val time:String,val epoch:Long)
+data class Rec(val id:String, val number:String,val packageName:String,val bank:String,val price:Int,val time:String,val epoch:Long)
+data class PendingRec(val id:String, val number:String,val packageName:String,val price:Int,val time:String,val epoch:Long)
 data class Proof(val number:String,val packageName:String,val price:Int,val time:String,val path:String)
 data class MatchResult(val pkg: Package?, val needsConfirmation: Boolean, val suggestion: String)
 
@@ -22,20 +23,33 @@ object Store {
         get() = sp.getBoolean("alarm", false)
         set(v) { sp.edit().putBoolean("alarm", v).apply() }
     
-    var pendingTask: String
-        get() = sp.getString("ptask", "")!!
-        set(v) { sp.edit().putString("ptask", v).apply() }
-    
-    var pickRecording = false
     var pendingUploadNetwork: String = "Jazz"
-    
     var recordFilter: String
         get() = sp.getString("rf", "Today")!!
         set(v) { sp.edit().putString("rf", v).apply() }
 
-    var easypaisaPin: String
-        get() = sp.getString("epin", "")!!
-        set(v) { sp.edit().putString("epin", v).apply() }
+    // Prevent spam replies to the same failed package
+    fun getLastFail(key: String): Long = sp.getLong("fail_$key", 0)
+    fun setLastFail(key: String, time: Long) { sp.edit().putLong("fail_$key", time).apply() }
+
+    // Custom Replies
+    fun getCustomReplies(): Map<String, String> {
+        val s = sp.getString("custom_replies", "{}")!!
+        val map = mutableMapOf<String, String>()
+        try {
+            val json = JSONObject(s)
+            for (key in json.keys()) map[key] = json.getString(key)
+        } catch (_: Exception) {}
+        return map
+    }
+    fun addCustomReply(trigger: String, reply: String) {
+        val map = getCustomReplies().toMutableMap()
+        map[trigger.lowercase()] = reply
+        val json = JSONObject()
+        for ((k, v) in map) json.put(k, v)
+        sp.edit().putString("custom_replies", json.toString()).apply()
+    }
+    fun clearCustomReplies() { sp.edit().putString("custom_replies", "{}").apply() }
 
     fun clearPackages() { sp.edit().putString("pk", "[]").apply() }
 
@@ -99,65 +113,40 @@ object Store {
         return MatchResult(null, false, "")
     }
 
-    fun banks(): List<Bank> = (JSONArray(sp.getString("bk", "[]"))).let { arr ->
+    // PENDING RECORDS
+    fun pendingRecords(): List<PendingRec> = (JSONArray(sp.getString("pend", "[]"))).let { arr ->
         (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
-            Bank(o.getString("n"), o.getString("a"), o.getInt("b"), o.getInt("l"))
+            PendingRec(o.getString("id"), o.getString("num"), o.getString("pk"), o.getInt("pr"), o.getString("t"), o.getLong("e"))
         }
     }
-    fun upsertBank(b: Bank, old: Bank?) {
-        val list = banks().toMutableList()
-        if (old != null) list.remove(old)
-        list.add(b)
-        val arr = JSONArray()
-        for (x in list) arr.put(JSONObject().apply {
-            put("n", x.name); put("a", x.account); put("b", x.balance); put("l", x.lowAt)
-        })
-        sp.edit().putString("bk", arr.toString()).apply()
+    fun addPendingRecord(r: PendingRec) {
+        val list = pendingRecords().toMutableList()
+        list.add(r)
+        savePending(list)
     }
-    fun deleteBank(b: Bank) {
-        val list = banks().filter { it != b }
-        val arr = JSONArray()
-        for (x in list) arr.put(JSONObject().apply {
-            put("n", x.name); put("a", x.account); put("b", x.balance); put("l", x.lowAt)
-        })
-        sp.edit().putString("bk", arr.toString()).apply()
-    }
-    fun lowFundsPolicy(): String = sp.getString("lf", "Switch to next bank")!!
-    fun setLowFundsPolicy(v: String) { sp.edit().putString("lf", v).apply() }
-
-    fun groups(): List<Group> = (JSONArray(sp.getString("gr", "[]"))).let { arr ->
-        (0 until arr.length()).map { i ->
-            val o = arr.getJSONObject(i)
-            Group(o.getString("n"), o.getBoolean("w"), o.getString("c"))
+    fun resolvePendingRecord(id: String, isDone: Boolean) {
+        val list = pendingRecords()
+        val item = list.find { it.id == id } ?: return
+        if (isDone) {
+            addRecord(Rec(item.id, item.number, item.packageName, "WhatsApp", item.price, item.time, item.epoch))
         }
+        savePending(list.filter { it.id != id })
     }
-    fun addGroup(name: String) {
-        val list = groups().toMutableList()
-        if (list.any { it.name == name }) return
-        list.add(Group(name, true, "PKR"))
-        saveGroups(list)
-    }
-    fun setGroupWatched(name: String, watched: Boolean) {
-        saveGroups(groups().map { if (it.name == name) it.copy(watched = watched) else it })
-    }
-    fun setGroupCurrency(name: String, cur: String) {
-        saveGroups(groups().map { if (it.name == name) it.copy(currency = cur) else it })
-    }
-    private fun saveGroups(list: List<Group>) {
+    private fun savePending(list: List<PendingRec>) {
         val arr = JSONArray()
-        for (g in list) arr.put(JSONObject().apply {
-            put("n", g.name); put("w", g.watched); put("c", g.currency)
+        for (p in list) arr.put(JSONObject().apply {
+            put("id", p.id); put("num", p.number); put("pk", p.packageName)
+            put("pr", p.price); put("t", p.time); put("e", p.epoch)
         })
-        sp.edit().putString("gr", arr.toString()).apply()
+        sp.edit().putString("pend", arr.toString()).apply()
     }
-    fun groupFor(name: String): Group? = groups().firstOrNull { it.name.equals(name, true) }
 
+    // CONFIRMED RECORDS
     fun records(): List<Rec> = (JSONArray(sp.getString("rc", "[]"))).let { arr ->
         (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
-            Rec(o.getString("num"), o.getString("pk"), o.getString("bk"),
-                o.getInt("pr"), o.getString("t"), o.getLong("e"))
+            Rec(o.getString("id"), o.getString("num"), o.getString("pk"), o.getString("bk"), o.getInt("pr"), o.getString("t"), o.getLong("e"))
         }
     }
     fun addRecord(r: Rec) {
@@ -165,7 +154,7 @@ object Store {
         list.add(r)
         val arr = JSONArray()
         for (x in list) arr.put(JSONObject().apply {
-            put("num", x.number); put("pk", x.packageName); put("bk", x.bank)
+            put("id", x.id); put("num", x.number); put("pk", x.packageName); put("bk", x.bank)
             put("pr", x.price); put("t", x.time); put("e", x.epoch)
         })
         sp.edit().putString("rc", arr.toString()).apply()
