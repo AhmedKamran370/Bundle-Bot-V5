@@ -14,11 +14,11 @@ class BgService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        val channelId = "bundlebot_channel"
+        val channelId = "nabeel_channel"
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                channelId, "BundleBot Automation",
+                channelId, "Nabeel Background Service",
                 NotificationManager.IMPORTANCE_LOW
             )
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -27,15 +27,15 @@ class BgService : Service() {
 
         val notification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, channelId)
-                .setContentTitle("BundleBot is Active")
-                .setContentText("Watching WhatsApp and automating Easypaisa...")
+                .setContentTitle("Nabeel is Active")
+                .setContentText("Watching WhatsApp...")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .build()
         } else {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
-                .setContentTitle("BundleBot is Active")
-                .setContentText("Watching WhatsApp and automating Easypaisa...")
+                .setContentTitle("Nabeel is Active")
+                .setContentText("Watching WhatsApp...")
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .build()
         }
@@ -44,6 +44,6 @@ class BgService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        return START_STICKY // Tells Android to restart the service if it gets killed
+        return START_STICKY 
     }
 }
