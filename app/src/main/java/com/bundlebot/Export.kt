@@ -16,9 +16,8 @@ object Export {
         }
 
         try {
-            // Saves to a folder you can access via your phone's File Manager
             val dir = a.getExternalFilesDir(null)
-            val file = File(dir, "BundleBot_Report_${currency}.csv")
+            val file = File(dir, "Nabeel_Report_${currency}.csv")
             file.writeText(sb.toString())
             Toast.makeText(a, "Saved to: ${file.absolutePath}", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
