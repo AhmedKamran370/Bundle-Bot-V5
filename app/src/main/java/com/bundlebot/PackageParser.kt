@@ -13,7 +13,6 @@ object PackageParser {
             var l = rawLine.trim()
             if (l.isEmpty()) continue
 
-            // Detect Section Headers and set the Days accordingly
             if (l.contains("Package", true) && !l.any { it.isDigit() } && !l.contains("SR.NO", true)) {
                 currentSec = l.replace("|", "").trim()
                 currentDays = when {
