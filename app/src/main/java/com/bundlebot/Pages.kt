@@ -51,22 +51,9 @@ object Pages {
 
     fun home(a: Activity): View {
         val c = col(a)
-        c.addView(tv(a, "Welcome", TEXT, 24f))
+        c.addView(tv(a, "Welcome to Nabeel", TEXT, 24f))
         c.addView(tv(a, "Today: ${Store.todayCount()} sales • ${Store.convert(Store.todayTotal())} ${Store.currency()}", MUTED))
         
-        if (Store.groups().isEmpty()) {
-            val alert = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
-            alert.addView(tv(a, "⚠ Setup Required", WARN, 18f))
-            alert.addView(tv(a, "You haven't added any WhatsApp groups yet. Go to the Setup tab to add your groups.", MUTED, 12f))
-            alert.addView(btn(a, "Go to Setup", BLUE) { (a as MainActivity).rebuild(); a.findViewById<View>(android.R.id.content).post { Pages.setup(a) } })
-            c.addView(card(a, alert))
-        } else if (Store.groups().none { it.watched }) {
-            val alert = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
-            alert.addView(tv(a, "⚠ Automation Paused", WARN, 18f))
-            alert.addView(tv(a, "You have groups added, but none are ticked. Go to Setup and tick the groups you want to maintain.", MUTED, 12f))
-            c.addView(card(a, alert))
-        }
-
         if (Store.alarmActive) {
             val al = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
             al.addView(tv(a, "⚠ ERROR — manual action needed", WARN, 18f))
@@ -79,7 +66,6 @@ object Pages {
         val perms = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
         perms.addView(tv(a, "Permissions", ACCENT, 16f))
         perms.addView(btn(a, "WhatsApp message access") { a.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) })
-        perms.addView(btn(a, "Screen control (Easypaisa)") { a.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) })
         c.addView(card(a, perms))
         return wrap(c)
     }
@@ -140,7 +126,6 @@ object Pages {
 
             netContent.addView(btn(a, "➕ Add $net Packages", BLUE) {
                 Store.pendingUploadNetwork = net
-                Store.pickRecording = false
                 pickFile(a)
             })
 
@@ -187,6 +172,33 @@ object Pages {
             val opts = arrayOf("PKR", "USD", "AED", "SAR", "INR", "GBP")
             AlertDialog.Builder(a).setItems(opts) { _, i -> Store.setCurrency(opts[i]); (a as MainActivity).rebuild() }.show()
         })
+
+        // PENDING RECORDS SECTION
+        val pend = Store.pendingRecords()
+        if (pend.isNotEmpty()) {
+            c.addView(tv(a, "Pending Requests", BLUE, 18f))
+            for (p in pend.reversed()) {
+                val box = LinearLayout(a).apply {
+                    orientation = LinearLayout.VERTICAL; setPadding(20, 12, 20, 12)
+                    setBackgroundColor(Color.parseColor("#1E3A8A")) // Dark Blue
+                    layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 6 }
+                }
+                box.addView(tv(a, "${p.number} — ${p.packageName} • ${p.price} PKR", TEXT))
+                box.addView(tv(a, "${p.time}", MUTED, 12f))
+                
+                val btnRow = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL }
+                btnRow.addView(btn(a, "✅ Done", ACCENT) { 
+                    Store.resolvePendingRecord(p.id, true); (a as MainActivity).rebuild() 
+                }, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = 10 })
+                btnRow.addView(btn(a, "❌ Cancel", WARN) { 
+                    Store.resolvePendingRecord(p.id, false); (a as MainActivity).rebuild() 
+                }, LinearLayout.LayoutParams(0, -2, 1f))
+                box.addView(btnRow)
+                c.addView(box)
+            }
+        }
+
+        c.addView(tv(a, "Confirmed History", TEXT, 18f))
         val recs = Store.filteredRecords(Store.recordFilter)
         val total = recs.sumOf { Store.convert(it.price) }
         c.addView(tv(a, "Total: $total ${Store.currency()}", ACCENT, 20f))
@@ -199,7 +211,7 @@ object Pages {
                 layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 6 }
             }
             box.addView(tv(a, "${r.number} — ${r.packageName}", TEXT))
-            box.addView(tv(a, "${r.time} • ${r.bank} • ${Store.convert(r.price)} ${Store.currency()}", MUTED, 12f))
+            box.addView(tv(a, "${r.time} • ${Store.convert(r.price)} ${Store.currency()}", MUTED, 12f))
             c.addView(box)
         }
         return wrap(c)
@@ -226,50 +238,15 @@ object Pages {
     fun banks(a: Activity): View {
         val c = col(a)
         c.addView(tv(a, "Banks", TEXT, 24f))
-        c.addView(tv(a, "Add your Easypaisa account so the app knows your balance.", MUTED, 12f))
-        c.addView(btn(a, "Add bank account") { editBank(a, null) })
-        for (b in Store.banks()) {
-            val box = LinearLayout(a).apply {
-                orientation = LinearLayout.HORIZONTAL; setPadding(20, 12, 20, 12)
-                setBackgroundColor(Color.parseColor(CARD))
-                layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 6 }
-            }
-            val info = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
-            info.layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
-            info.addView(tv(a, b.name, TEXT))
-            info.addView(tv(a, "${b.account} • ${b.balance} PKR (low at ${b.lowAt})", MUTED, 12f))
-            box.addView(info)
-            box.addView(btn(a, "Edit") { editBank(a, b) })
-            c.addView(box)
-        }
+        c.addView(tv(a, "This is for your reference. Easypaisa automation is removed.", MUTED, 12f))
         return wrap(c)
-    }
-
-    private fun editBank(a: Activity, b: Bank?) {
-        val ll = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; setPadding(30, 30, 30, 30) }
-        val n = EditText(a).apply { hint = "Bank (e.g. Easypaisa)"; setText(b?.name ?: "") }
-        val ac = EditText(a).apply { hint = "Account Number"; setText(b?.account ?: "") }
-        val ba = EditText(a).apply { hint = "Current Balance (PKR)"; inputType = InputType.TYPE_CLASS_NUMBER; setText(b?.balance?.toString() ?: "") }
-        val lo = EditText(a).apply { hint = "Low threshold (e.g. 200)"; inputType = InputType.TYPE_CLASS_NUMBER; setText(b?.lowAt?.toString() ?: "200") }
-        listOf(n, ac, ba, lo).forEach { ll.addView(it) }
-        val d = AlertDialog.Builder(a).setView(ll)
-            .setPositiveButton("Save") { _, _ ->
-                Store.upsertBank(Bank(n.text.toString(), ac.text.toString(),
-                    ba.text.toString().toIntOrNull() ?: 0,
-                    lo.text.toString().toIntOrNull() ?: 200), b)
-                (a as MainActivity).rebuild()
-            }
-            .setNegativeButton("Cancel", null)
-        if (b != null) d.setNeutralButton("Delete") { _, _ -> Store.deleteBank(b); (a as MainActivity).rebuild() }
-        d.show()
     }
 
     fun setup(a: Activity): View {
         val c = col(a)
-        c.addView(tv(a, "Setup Wizard", TEXT, 24f))
-        c.addView(tv(a, "Follow these steps to start the automation.", MUTED, 12f))
+        c.addView(tv(a, "Setup", TEXT, 24f))
 
-        c.addView(tv(a, "1. Select WhatsApp App", ACCENT, 18f))
+        c.addView(tv(a, "1. Which WhatsApp to read?", TEXT, 16f))
         val rg = RadioGroup(a)
         listOf("both" to "Both", "wa" to "WhatsApp only", "biz" to "WhatsApp Business only").forEach { (k, l) ->
             rg.addView(RadioButton(a).apply {
@@ -279,13 +256,11 @@ object Pages {
         }
         c.addView(rg)
 
-        c.addView(tv(a, "2. Add Groups to Maintain", ACCENT, 18f))
-        c.addView(tv(a, "Type the exact name of your WhatsApp group below and press Add.", MUTED, 12f))
-        
-        val inputRow = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL }
-        val groupInput = EditText(a).apply { hint = "e.g. Kakarot"; layoutParams = LinearLayout.LayoutParams(0, -2, 1f) }
-        inputRow.addView(groupInput)
-        inputRow.addView(btn(a, "Add") {
+        c.addView(tv(a, "2. Groups", TEXT, 16f))
+        val groupInput = EditText(a).apply { hint = "Group Name"; hint = "e.g. Kakarot" }
+        val addRow = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL }
+        addRow.addView(groupInput, LinearLayout.LayoutParams(0, -2, 1f))
+        addRow.addView(btn(a, "Add") {
             val name = groupInput.text.toString().trim()
             if (name.isNotEmpty()) {
                 Store.addGroup(name)
@@ -293,11 +268,9 @@ object Pages {
                 (a as MainActivity).rebuild()
             }
         })
-        c.addView(inputRow)
-        
-        c.addView(tv(a, "Your Groups (Tick to start automation):", TEXT, 14f))
+        c.addView(addRow)
+
         if (Store.groups().isEmpty()) c.addView(tv(a, "No groups added yet.", MUTED, 12f))
-        
         for (g in Store.groups()) {
             val row = LinearLayout(a).apply {
                 orientation = LinearLayout.HORIZONTAL; setPadding(15, 10, 15, 10)
@@ -316,31 +289,40 @@ object Pages {
             c.addView(row)
         }
 
-        c.addView(tv(a, "3. Easypaisa Settings", ACCENT, 18f))
-        val pin = EditText(a).apply { 
-            setText(Store.easypaisaPin); hint = "Enter 5-digit MPIN"
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
-        }
-        c.addView(pin)
-        c.addView(btn(a, "Save PIN") { 
-            Store.easypaisaPin = pin.text.toString().trim()
-            Toast.makeText(a, "PIN Saved", Toast.LENGTH_SHORT).show() 
+        c.addView(tv(a, "3. Custom Replies", TEXT, 16f))
+        c.addView(tv(a, "If client's message contains the keyword, it replies with your text. Otherwise, it copies their text + 'Ok'.", MUTED, 12f))
+        
+        val trigger = EditText(a).apply { hint = "Keyword (e.g. price)" }
+        val response = EditText(a).apply { hint = "Reply (e.g. Rates are in list)" }
+        c.addView(trigger)
+        c.addView(response)
+        c.addView(btn(a, "Add Custom Reply", BLUE) {
+            if (trigger.text.isNotBlank() && response.text.isNotBlank()) {
+                Store.addCustomReply(trigger.text.toString(), response.text.toString())
+                trigger.setText(""); response.setText("")
+                Toast.makeText(a, "Reply Added", Toast.LENGTH_SHORT).show()
+            }
         })
 
-        c.addView(tv(a, "4. Train AI (Optional)", ACCENT, 18f))
-        c.addView(tv(a, "Status: ${if (Store.screenRecordingDone()) "Uploaded ✅" else "Not Uploaded ❌"}", MUTED, 12f))
-        c.addView(btn(a, "Upload Recording", BLUE) { 
-            Store.pickRecording = true
-            pickFile(a) 
-        })
-        
+        val replies = Store.getCustomReplies()
+        if (replies.isNotEmpty()) {
+            c.addView(tv(a, "Your Custom Replies:", TEXT, 14f))
+            for ((k, v) in replies) {
+                c.addView(tv(a, "• '$k' → '$v'", MUTED, 12f))
+            }
+            c.addView(btn(a, "Clear All Custom Replies", WARN) {
+                Store.clearCustomReplies()
+                (a as MainActivity).rebuild()
+            })
+        }
+
         return wrap(c)
     }
 
     fun help(a: Activity): View {
         val c = col(a)
         c.addView(tv(a, "AI Help", TEXT, 24f))
-        c.addView(tv(a, "Ask anything about BundleBot", MUTED))
+        c.addView(tv(a, "Ask anything about Nabeel", MUTED))
         val q = EditText(a).apply { hint = "Question" }
         val ans = tv(a, "", TEXT)
         c.addView(q)
