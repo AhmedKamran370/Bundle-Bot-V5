@@ -4,19 +4,22 @@ import android.content.Context
 import android.media.RingtoneManager
 import android.media.Ringtone
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 
 object Alarm {
     private var ringtone: Ringtone? = null
     private var vibrator: Vibrator? = null
+    private val handler = Handler(Looper.getMainLooper())
 
     fun init(c: Context) {
         ringtone = RingtoneManager.getRingtone(c, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
         vibrator = c.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
     }
 
-    fun start() {
+    fun start(c: Context) {
         try { ringtone?.play() } catch (_: Exception) {}
         try {
             if (Build.VERSION.SDK_INT >= 26) {
@@ -25,6 +28,10 @@ object Alarm {
                 @Suppress("DEPRECATION") vibrator?.vibrate(longArrayOf(0, 500, 300, 500), 0)
             }
         } catch (_: Exception) {}
+        
+        // Auto stop after 5 seconds
+        handler.removeCallbacksAndMessages(null)
+        handler.postDelayed({ stop(c) }, 5000)
     }
 
     fun stop(c: Context) {
