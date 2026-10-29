@@ -33,7 +33,7 @@ object Ai {
         } catch (e: Exception) { "AI unavailable: ${e.message}" }
     }
 
-    fun ask(q: String): String = call("You are the in-app assistant for BundleBot, an Android app that sells mobile data bundles via WhatsApp and Easypaisa. Answer briefly in simple English. Question: $q")
+    fun ask(q: String): String = call("You are the in-app assistant for Nabeel, an Android app that sells mobile data bundles via WhatsApp. Answer briefly in simple English. Question: $q")
 
     fun parseMessage(raw: String): JSONObject? {
         val prompt = """Extract from this WhatsApp message. Return JSON with keys number, gb, days, name, network, price. If a key is unknown, use 0 or "". Message: "$raw""""
