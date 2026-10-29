@@ -173,14 +173,13 @@ object Pages {
             AlertDialog.Builder(a).setItems(opts) { _, i -> Store.setCurrency(opts[i]); (a as MainActivity).rebuild() }.show()
         })
 
-        // PENDING RECORDS SECTION
         val pend = Store.pendingRecords()
         if (pend.isNotEmpty()) {
             c.addView(tv(a, "Pending Requests", BLUE, 18f))
             for (p in pend.reversed()) {
                 val box = LinearLayout(a).apply {
                     orientation = LinearLayout.VERTICAL; setPadding(20, 12, 20, 12)
-                    setBackgroundColor(Color.parseColor("#1E3A8A")) // Dark Blue
+                    setBackgroundColor(Color.parseColor("#1E3A8A")) 
                     layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = 6 }
                 }
                 box.addView(tv(a, "${p.number} — ${p.packageName} • ${p.price} PKR", TEXT))
