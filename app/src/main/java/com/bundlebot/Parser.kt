@@ -24,7 +24,6 @@ object Parser {
 
         var gb = gbRegex.find(text)?.groupValues?.get(1)?.toIntOrNull() ?: 0
         if (gb == 0) {
-            // Support MB
             val mb = mbRegex.find(text)?.groupValues?.get(1)?.toIntOrNull() ?: 0
             if (mb > 0) gb = (mb / 1024.0).toInt().coerceAtLeast(1)
         }
